@@ -14,10 +14,17 @@ FR-xx, NFR-xx
 
 ## Acceptance criteria
 
-- Given ... when ... then ...
+Write specific, testable Given/When/Then scenarios.
+
+- Given ...
+  When ...
+  Then ...
 
 ## Points
 
 1, 2, 3 or 5
 
 ## Owner and sprint
+- Owner:
+- Sprint:
+
