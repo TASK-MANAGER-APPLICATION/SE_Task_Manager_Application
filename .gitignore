@@ -1,0 +1,23 @@
+node_modules/
+.env
+.env.*
+!.env.example
+coverage/
+dist/
+build/
+*.log
+.DS_Store
+.vscode/
+.idea/
+
+# Expo and React Native
+.expo/
+mobile/android/app/build/
+mobile/ios/Pods/
+*.apk
+
+# Secrets, never commit these
+google-services.json
+GoogleService-Info.plist
+serviceAccount*.json
+*-firebase-adminsdk-*.json
