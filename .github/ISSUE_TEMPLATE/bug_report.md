@@ -17,7 +17,12 @@ labels: bug
 
 ## Severity
 
-Critical, High, Medium or Low
+Select one:
+
+- [ ] Critical
+- [ ] High
+- [ ] Medium
+- [ ] Low
 
 ## Sprint found and test case ID
 
