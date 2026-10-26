@@ -9,7 +9,7 @@ FR/NFR IDs:
 
 ## Checklist
 
-- [ ] Unit tests are in this PR
+- [ ] Tests added or updated where applicable
 - [ ] CI is green
 - [ ] OpenAPI file updated for any endpoint change
 - [ ] RTM line updated
