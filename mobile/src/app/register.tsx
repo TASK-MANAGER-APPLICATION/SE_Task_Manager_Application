@@ -10,25 +10,10 @@ import {
   View,
 } from 'react-native';
 
-type FormErrors = {
-  name?: string;
-  email?: string;
-  password?: string;
-  confirmPassword?: string;
-};
-
-function isValidEmail(email: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-}
-
-function isStrongPassword(password: string): boolean {
-  return (
-    password.length >= 8 &&
-    /[A-Z]/.test(password) &&
-    /[a-z]/.test(password) &&
-    /\d/.test(password)
-  );
-}
+import {
+  RegistrationErrors,
+  validateRegistrationForm,
+} from '@/services/registrationValidation';
 
 export default function RegisterScreen() {
   const [name, setName] = useState('');
@@ -40,30 +25,12 @@ export default function RegisterScreen() {
   const [successMessage, setSuccessMessage] = useState('');
 
   function validateForm(): boolean {
-    const newErrors: FormErrors = {};
-
-    if (!name.trim()) {
-      newErrors.name = 'Name is required.';
-    }
-
-    if (!email.trim()) {
-      newErrors.email = 'Email is required.';
-    } else if (!isValidEmail(email.trim())) {
-      newErrors.email = 'Enter a valid email address.';
-    }
-
-    if (!password) {
-      newErrors.password = 'Password is required.';
-    } else if (!isStrongPassword(password)) {
-      newErrors.password =
-        'Password must be at least 8 characters with uppercase, lowercase, and a number.';
-    }
-
-    if (!confirmPassword) {
-      newErrors.confirmPassword = 'Please confirm your password.';
-    } else if (password !== confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match.';
-    }
+    const newErrors: RegistrationErrors = validateRegistrationForm(
+      name,
+      email,
+      password,
+      confirmPassword
+    );
 
     setErrors(newErrors);
 
