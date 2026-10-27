@@ -47,6 +47,15 @@ jobs:
         if: ${{ hashFiles('backend/package.json') != '' }}
         working-directory: backend
         run: npm run lint --if-present
+      
+      - name: Run database migrations
+        if: ${{ hashFiles('backend/package.json') != '' }}
+        env:
+          PGPASSWORD: taskmanager
+        run: |
+          psql -h localhost -p 5432 -U taskmanager -d taskmanager_test -v ON_ERROR_STOP=1 -f backend/migrations/001_initial_schema.sql
+          psql -h localhost -p 5432 -U taskmanager -d taskmanager_test -v ON_ERROR_STOP=1 -f backend/migrations/002_session_token_hash.sql
+
 
       - name: Test
         if: ${{ hashFiles('backend/package.json') != '' }}
