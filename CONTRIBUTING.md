@@ -4,7 +4,7 @@
 
 - main is protected and holds tagged releases.
 - develop is the integration branch.
-- feature/FR-id-name for features, for example feature/FR-10-create-task. Use fix/, test/, docs/ and chore/ prefixes for everything else.
+- feature/<FR-id>-<name> for features, for example feature/FR-10-create-task. Use fix/, test/, docs/ and chore/ prefixes for the rest.
 
 Merge to develop by pull request only. At the end of each sprint, merge develop to main and tag it.
 
@@ -20,12 +20,10 @@ Commit small and push the same day. Never backdate commits or edit timestamps. I
 
 ## Pull requests
 
-1. The assigned team member raises the pull request.
-2. Link the issue and the FR or NFR IDs.
-3. Describe what changed and how it was tested.
-4. Wait for green CI.
-5. One teammate reviews. Amrita reviews Shrungashree and Abdullah, Shrungashree reviews Amrita, Abdullah reviews Shivanand.
-6. The repo owner reviews and merges.
+1. Link the issue and the FR or NFR IDs.
+2. Describe what changed and how it was tested.
+3. Wait for green CI.
+4. One other member reviews. Amrita reviews Shrungashree and Abdullah, Shrungashree reviews Amrita, Abdullah reviews Shivanand.
 
 ## Definition of Ready
 
