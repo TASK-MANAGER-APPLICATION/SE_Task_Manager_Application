@@ -2,13 +2,23 @@ name: CI
 
 on:
   push:
-    branches: [main, develop, "feature/**", "chore/**", "ci/**", "docs/**", "test/**"]
+    branches:
+      - main
+      - develop
+      - "feature/**"
+      - "fix/**"
+      - "chore/**"
+      - "docs/**"
+      - "test/**"
   pull_request:
-    branches: [main, develop]
+    branches:
+      - main
+      - develop
 
 jobs:
   backend:
     runs-on: ubuntu-latest
+
     services:
       postgres:
         image: postgres:16
@@ -23,32 +33,42 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+
     env:
       NODE_ENV: test
       DATABASE_URL: postgres://taskmanager:taskmanager@localhost:5432/taskmanager_test
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Backend not scaffolded yet
-        if: ${{ hashFiles('backend/package.json') == '' }}
-        run: echo "No backend/package.json yet, nothing to lint or test."
+      - name: Require backend package and lockfile
+        run: |
+          if [ ! -f backend/package.json ]; then
+            echo "::error::backend/package.json is missing. The backend scaffold is required."
+            exit 1
+          fi
 
-      - uses: actions/setup-node@v4
-        if: ${{ hashFiles('backend/package.json') != '' }}
+          if [ ! -f backend/package-lock.json ]; then
+            echo "::error::backend/package-lock.json is missing. Commit the npm lockfile."
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
 
-      - name: Install
-        if: ${{ hashFiles('backend/package.json') != '' }}
+      - name: Install backend dependencies
         working-directory: backend
         run: npm ci
 
-      - name: Lint
-        if: ${{ hashFiles('backend/package.json') != '' }}
+      - name: Lint backend
         working-directory: backend
-        run: npm run lint --if-present
+        run: npm run lint
 
-      - name: Test
-        if: ${{ hashFiles('backend/package.json') != '' }}
+      - name: Test backend
         working-directory: backend
         run: npm test
