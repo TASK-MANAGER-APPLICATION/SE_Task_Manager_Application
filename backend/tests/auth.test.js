@@ -7,16 +7,21 @@ const crypto = require("crypto");
 describe("Authentication API", () => {
   const testEmail = `test-${Date.now()}@example.com`;
   const testPassword = "TestPass123!";
-  const createdEmails = [testEmail];
 
   afterAll(async () => {
-    try {
-      for (const email of createdEmails) {
-        await pool.query("DELETE FROM users WHERE email = $1", [email]);
-      }
-    } finally {
-      await pool.end();
-    }
+    await pool.query("DELETE FROM users WHERE email LIKE $1", [
+      "test-%@example.com",
+    ]);
+    await pool.query("DELETE FROM users WHERE email LIKE $1", [
+      "wrong-current-%@example.com",
+    ]);
+    await pool.query("DELETE FROM users WHERE email LIKE $1", [
+      "change-password-%@example.com",
+    ]);
+    await pool.query("DELETE FROM users WHERE email LIKE $1", [
+      "timeout-%@example.com",
+    ]);
+    await pool.end();
   });
 
   test("POST /auth/register creates a user", async () => {
@@ -96,7 +101,6 @@ describe("Authentication API", () => {
 
   test("POST /auth/change-password rejects an incorrect current password", async () => {
     const email = `wrong-current-${Date.now()}@example.com`;
-    createdEmails.push(email);
     const password = "TestPass123!";
 
     const registration = await request(app)
@@ -125,7 +129,6 @@ describe("Authentication API", () => {
 
   test("POST /auth/change-password changes the password and invalidates sessions", async () => {
     const email = `change-password-${Date.now()}@example.com`;
-    createdEmails.push(email);
     const oldPassword = "TestPass123!";
     const newPassword = "NewTestPass456!";
 
@@ -174,7 +177,6 @@ describe("Authentication API", () => {
 
   test("rejects a session idle for more than 30 minutes", async () => {
     const email = `timeout-${Date.now()}@example.com`;
-    createdEmails.push(email);
     const password = "TestPass123!";
 
     const registration = await request(app)
