@@ -48,6 +48,11 @@ jobs:
         working-directory: backend
         run: npm run lint --if-present
 
+      - name: Run database migrations
+        if: ${{ hashFiles('backend/package.json') != '' }}
+        working-directory: backend
+        run: npm run migrate
+
       - name: Test
         if: ${{ hashFiles('backend/package.json') != '' }}
         working-directory: backend
