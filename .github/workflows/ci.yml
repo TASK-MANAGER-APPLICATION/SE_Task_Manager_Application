@@ -7,6 +7,69 @@ on:
     branches: [main, develop]
 
 jobs:
+name: CI
+
+on:
+  push:
+    branches: [main, develop, "feature/**", "chore/**", "ci/**", "docs/**", "test/**"]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: taskmanager
+          POSTGRES_PASSWORD: taskmanager
+          POSTGRES_DB: taskmanager_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U taskmanager"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgres://taskmanager:taskmanager@localhost:5432/taskmanager_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Backend not scaffolded yet
+        if: ${{ hashFiles('backend/package.json') == '' }}
+        run: echo "No backend/package.json yet, nothing to lint or test."
+
+      - uses: actions/setup-node@v4
+        if: ${{ hashFiles('backend/package.json') != '' }}
+        with:
+          node-version: 20
+
+      - name: Install
+        if: ${{ hashFiles('backend/package.json') != '' }}
+        working-directory: backend
+        run: npm ci
+
+      - name: Lint
+        if: ${{ hashFiles('backend/package.json') != '' }}
+        working-directory: backend
+        run: npm run lint --if-present
+
+      - name: Run database migrations
+        if: ${{ hashFiles('backend/package.json') != '' }}
+        working-directory: backend
+        run: npm run migrate
+
+      - name: Test
+        if: ${{ hashFiles('backend/package.json') != '' }}
+        working-directory: backend
+        run: npm test
+
   backend:
     runs-on: ubuntu-latest
     services:
