@@ -3,12 +3,23 @@ name: CI
 
 on:
   push:
-    branches: [main, develop, "feature/**", "chore/**", "ci/**", "docs/**", "test/**"]
+    branches:
+      - main
+      - develop
+      - "feature/**"
+      - "chore/**"
+      - "ci/**"
+      - "docs/**"
+      - "test/**"
+
   pull_request:
-    branches: [main, develop]
+    branches:
+      - main
+      - develop
 
 jobs:
   backend:
+    name: Backend
     runs-on: ubuntu-latest
 
     services:
@@ -21,7 +32,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U taskmanager"
+          --health-cmd "pg_isready -U taskmanager -d taskmanager_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -31,33 +42,98 @@ jobs:
       DATABASE_URL: postgres://taskmanager:taskmanager@localhost:5432/taskmanager_test
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Backend not scaffolded yet
-        if: ${{ hashFiles('backend/package.json') == '' }}
-        run: echo "No backend/package.json yet, nothing to lint or test."
-
-      - uses: actions/setup-node@v4
+      - name: Set up Node.js
         if: ${{ hashFiles('backend/package.json') != '' }}
+        uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
 
-      - name: Install
-        if: ${{ hashFiles('backend/package.json') != '' }}
+      - name: Check backend files
+        run: |
+          if [ ! -f backend/package.json ]; then
+            echo "Backend package.json is missing."
+            exit 1
+          fi
+
+          if [ ! -f backend/migrate.js ]; then
+            echo "backend/migrate.js is missing."
+            exit 1
+          fi
+
+          if [ ! -f backend/migrations/001_initial_schema.sql ]; then
+            echo "Initial schema migration is missing."
+            exit 1
+          fi
+
+          if [ ! -f backend/migrations/002_session_token_hash.sql ]; then
+            echo "Session token migration is missing."
+            exit 1
+          fi
+
+      - name: Install dependencies
         working-directory: backend
         run: npm ci
 
       - name: Lint
-        if: ${{ hashFiles('backend/package.json') != '' }}
         working-directory: backend
         run: npm run lint --if-present
 
+      - name: Verify PostgreSQL connection
+        working-directory: backend
+        run: |
+          node -e 'const { Client } = require("pg"); (async () => {
+            const client = new Client({ connectionString: process.env.DATABASE_URL });
+            try {
+              await client.connect();
+              const result = await client.query("SELECT current_database() AS database, current_user AS username");
+              console.log("Database connection successful:", result.rows[0]);
+            } finally {
+              await client.end();
+            }
+          })().catch(error => {
+            console.error("Database connection failed:", error.message);
+            process.exitCode = 1;
+          });'
+
       - name: Run database migrations
-        if: ${{ hashFiles('backend/package.json') != '' }}
         working-directory: backend
         run: npm run migrate
 
-      - name: Test
-        if: ${{ hashFiles('backend/package.json') != '' }}
+      - name: Verify database schema
+        working-directory: backend
+        run: |
+          node -e 'const { Client } = require("pg"); (async () => {
+            const client = new Client({ connectionString: process.env.DATABASE_URL });
+            try {
+              await client.connect();
+
+              const result = await client.query(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = '\''public'\'' AND table_name IN ('\''users'\'', '\''sessions'\'') ORDER BY table_name"
+              );
+
+              const tables = result.rows.map(row => row.table_name);
+              console.log("Database tables found:", tables);
+
+              for (const table of ["users", "sessions"]) {
+                if (!tables.includes(table)) {
+                  throw new Error("Required table is missing: " + table);
+                }
+              }
+
+              console.log("Required database tables exist.");
+            } finally {
+              await client.end();
+            }
+          })().catch(error => {
+            console.error("Schema verification failed:", error.message);
+            process.exitCode = 1;
+          });'
+
+      - name: Run tests
         working-directory: backend
         run: npm test
