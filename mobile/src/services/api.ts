@@ -31,6 +31,7 @@ export type Task = {
 
 export type ApiErrorResponse = {
   error?: string;
+  code?: string;
   message?: string;
 };
 
@@ -92,14 +93,26 @@ async function request<T>(
   if (!response.ok) {
     const errorData = data as ApiErrorResponse | null;
 
+    const fallbackMessages: Record<number, string> = {
+      400: 'Please check the information you entered and try again.',
+      401: 'Your session has expired. Please log in again.',
+      403: 'You do not have permission to perform this action.',
+      404: 'The requested information could not be found.',
+      500: 'Something went wrong on the server. Please try again.',
+    };
     const message =
       errorData?.message ||
-      errorData?.error ||
-      `Request failed with status ${response.status}.`;
+      (errorData?.error && !/^[A-Z0-9_]+$/.test(errorData.error)
+        ? errorData.error
+        : undefined) ||
+      fallbackMessages[response.status] ||
+      'The request could not be completed. Please try again.';
 
     const code =
-      typeof errorData?.error === 'string'
-        ? errorData.error
+      typeof errorData?.code === 'string'
+        ? errorData.code
+        : typeof errorData?.error === 'string'
+          ? errorData.error
         : undefined;
 
     if (code === 'SESSION_EXPIRED') {
