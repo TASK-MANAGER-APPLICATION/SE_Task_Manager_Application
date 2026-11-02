@@ -7,13 +7,13 @@ import {
   Platform,
   Pressable,
   RefreshControl,
-  SafeAreaView,
   StatusBar,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useFocusEffect, router } from 'expo-router';
 
@@ -28,6 +28,7 @@ import {
 } from '../services/api';
 
 import { clearSession } from '../services/authStorage';
+import { calculateDashboardSummary, filterAndSortTasks, isTaskOverdue } from '../services/taskPresentation';
 
 type StatusFilter = 'All' | 'Pending' | 'Completed';
 type PriorityFilter = 'All' | 'Low' | 'Medium' | 'High';
@@ -72,12 +73,10 @@ export default function HomeScreen() {
   const [deletingTaskId, setDeletingTaskId] =
     useState<number | string | null>(null);
 
-  const totalCount = tasks.length;
-  const completedCount = tasks.filter(
-    (task) => task.status === 'Completed'
-  ).length;
-
-  const pendingCount = totalCount - completedCount;
+  const summary = calculateDashboardSummary(tasks);
+  const totalCount = summary.total;
+  const completedCount = summary.completed;
+  const pendingCount = summary.pending;
 
   const categoryOptions = Array.from(
     new Set(
@@ -89,81 +88,17 @@ export default function HomeScreen() {
     )
   );
 
-  const filteredTasks = tasks.filter((task) => {
-    const matchesStatus =
-      statusFilter === 'All' ||
-      (statusFilter === 'Completed'
-        ? task.status === 'Completed'
-        : task.status !== 'Completed');
-    const matchesPriority =
-      priorityFilter === 'All' || task.priority === priorityFilter;
-    const matchesCategory =
-      categoryFilter === 'All' ||
-      String(task.category_id) === categoryFilter;
-
-    return matchesStatus && matchesPriority && matchesCategory;
-  });
+  const sortedTasks = filterAndSortTasks(
+    tasks,
+    { status: statusFilter, priority: priorityFilter, categoryId: categoryFilter },
+    sortField,
+    sortDirection
+  );
 
   const hasActiveFilters =
     statusFilter !== 'All' ||
     priorityFilter !== 'All' ||
     categoryFilter !== 'All';
-
-  const sortedTasks = [...filteredTasks];
-  if (sortField !== 'None') {
-    const direction = sortDirection === 'Ascending' ? 1 : -1;
-    const getTimestamp = (value: string | null | undefined) => {
-      if (!value) {
-        return null;
-      }
-
-      const timestamp = Date.parse(value);
-      return Number.isNaN(timestamp) ? null : timestamp;
-    };
-    const compareDates = (
-      left: string | null | undefined,
-      right: string | null | undefined
-    ) => {
-      const leftTimestamp = getTimestamp(left);
-      const rightTimestamp = getTimestamp(right);
-
-      if (leftTimestamp === null) {
-        return rightTimestamp === null ? 0 : 1;
-      }
-      if (rightTimestamp === null) {
-        return -1;
-      }
-
-      return (leftTimestamp - rightTimestamp) * direction;
-    };
-    const getPriorityRank = (priority: Task['priority']) => {
-      if (priority === 'Low') return 1;
-      if (priority === 'Medium') return 2;
-      if (priority === 'High') return 3;
-      return null;
-    };
-
-    sortedTasks.sort((left, right) => {
-      if (sortField === 'Due Date') {
-        return compareDates(left.due_at, right.due_at);
-      }
-      if (sortField === 'Created Date') {
-        return compareDates(left.created_at, right.created_at);
-      }
-      if (sortField === 'Priority') {
-        const leftRank = getPriorityRank(left.priority);
-        const rightRank = getPriorityRank(right.priority);
-
-        if (leftRank === null) return rightRank === null ? 0 : 1;
-        if (rightRank === null) return -1;
-        return (leftRank - rightRank) * direction;
-      }
-
-      const leftTitle = typeof left.title === 'string' ? left.title : '';
-      const rightTitle = typeof right.title === 'string' ? right.title : '';
-      return leftTitle.localeCompare(rightTitle) * direction;
-    });
-  }
 
   const hasActiveSorting =
     sortField !== 'None' || sortDirection !== 'Ascending';
@@ -292,6 +227,7 @@ export default function HomeScreen() {
   );
 
   async function handleRefresh() {
+    if (refreshing) return;
     setRefreshing(true);
     setErrorTitle('Unable to refresh tasks');
     setCanRetryError(true);
@@ -328,6 +264,7 @@ export default function HomeScreen() {
   }
 
   async function handleAddTask() {
+    if (addingTask) return;
     const title = newTitle.trim();
 
     if (!title) {
@@ -376,7 +313,7 @@ export default function HomeScreen() {
   }
 
   async function handleCompleteTask(task: Task) {
-    if (task.status === 'Completed') {
+    if (task.status === 'Completed' || completingTaskId === task.id) {
       return;
     }
 
@@ -433,6 +370,7 @@ export default function HomeScreen() {
   }
 
   async function handleSaveTask(task: Task) {
+    if (savingTask) return;
     const title = editingTitle.trim();
 
     if (!title) {
@@ -472,6 +410,7 @@ export default function HomeScreen() {
   }
 
   async function handleDeleteTask(task: Task) {
+    if (deletingTaskId === task.id) return;
     setDeletingTaskId(task.id);
 
     try {
@@ -568,6 +507,8 @@ export default function HomeScreen() {
       >
         <Pressable
           accessibilityRole="checkbox"
+          accessibilityLabel={`Mark ${item.title} complete`}
+          accessibilityHint="Marks this task as completed."
           accessibilityState={{
             checked: completed,
             disabled: completed || completing,
@@ -638,6 +579,8 @@ export default function HomeScreen() {
               />
               <View style={styles.taskActions}>
                 <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Edit task ${item.title}`}
                   style={styles.taskAction}
                   onPress={() => handleSaveTask(item)}
                   disabled={savingTask}
@@ -647,6 +590,8 @@ export default function HomeScreen() {
                   </Text>
                 </Pressable>
                 <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Delete task ${item.title}`}
                   style={styles.taskAction}
                   onPress={() => setEditingTaskId(null)}
                   disabled={savingTask}
@@ -657,14 +602,17 @@ export default function HomeScreen() {
             </View>
           ) : (
             <>
-              <Text
-                style={[
-                  styles.taskTitle,
-                  completed && styles.completedTitle,
-                ]}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`View task ${item.title}`}
+                style={styles.detailsLink}
+                onPress={() => router.push(`/task/${item.id}` as never)}
+                disabled={savingTask || deleting}
               >
-                {item.title}
-              </Text>
+                <Text style={[styles.taskTitle, completed && styles.completedTitle]}>
+                  {item.title}
+                </Text>
+              </Pressable>
 
               {item.description ? (
                 <Text style={styles.description}>
@@ -675,6 +623,12 @@ export default function HomeScreen() {
               <Text style={styles.taskMeta}>
                 Due: {formatDueDate(item.due_at)}
               </Text>
+              {isTaskOverdue(item) ? (
+                <Text accessibilityLabel="Overdue task" style={styles.overdueLabel}>Overdue</Text>
+              ) : null}
+              {item.category_id !== null && item.category_id !== undefined ? (
+                <Text style={styles.taskMeta}>Category ID: {item.category_id}</Text>
+              ) : null}
 
               <View style={styles.taskFooter}>
                 <Text
@@ -776,12 +730,35 @@ export default function HomeScreen() {
               {completedCount}
             </Text>
           </View>
+          <View style={[styles.summaryCard, styles.overdueCard]}>
+            <Text style={styles.summaryLabel}>OVERDUE TASKS</Text>
+            <Text style={styles.summaryNumber}>{summary.overdue}</Text>
+          </View>
+        </View>
+
+        <View style={styles.distributionCard}>
+          <Text style={styles.filtersTitle}>Task distribution</Text>
+          {totalCount === 0 ? (
+            <Text style={styles.emptyDashboardText}>No task data yet. Create a task to see your summary.</Text>
+          ) : null}
+          <Text style={styles.distributionText}>Status: Pending {summary.statusCounts.Pending} · Completed {summary.statusCounts.Completed}</Text>
+          <View style={styles.distributionTrack}>
+            <View style={[styles.pendingBar, { flex: summary.statusCounts.Pending || 0.001 }]} />
+            <View style={[styles.completedBar, { flex: summary.statusCounts.Completed || 0.001 }]} />
+          </View>
+          <Text style={styles.distributionText}>Priority: Low {summary.priorityCounts.Low} · Medium {summary.priorityCounts.Medium} · High {summary.priorityCounts.High}</Text>
+          <View style={styles.distributionTrack}>
+            <View style={[styles.lowBar, { flex: summary.priorityCounts.Low || 0.001 }]} />
+            <View style={[styles.mediumBar, { flex: summary.priorityCounts.Medium || 0.001 }]} />
+            <View style={[styles.highBar, { flex: summary.priorityCounts.High || 0.001 }]} />
+          </View>
         </View>
 
         <View style={styles.filtersCard}>
           <View style={styles.filtersHeadingRow}>
             <Text style={styles.filtersTitle}>Filter tasks</Text>
             <Pressable
+              style={styles.resetControl}
               onPress={resetFilters}
               disabled={!hasActiveFilters}
             >
@@ -843,6 +820,7 @@ export default function HomeScreen() {
           <View style={styles.filtersHeadingRow}>
             <Text style={styles.filtersTitle}>Sort tasks</Text>
             <Pressable
+              style={styles.resetControl}
               onPress={resetSorting}
               disabled={!hasActiveSorting}
             >
@@ -893,17 +871,14 @@ export default function HomeScreen() {
             </Text>
           </View>
 
-          <Pressable
-            style={styles.addButton}
-            onPress={() =>
-              setShowInput((value) => !value)
-            }
-            disabled={addingTask}
-          >
-            <Text style={styles.addButtonText}>
-              {showInput ? 'Cancel' : '+ Add task'}
-            </Text>
-          </Pressable>
+          <View style={styles.headerActions}>
+            <Pressable accessibilityRole="button" style={styles.addButton} onPress={() => setShowInput((value) => !value)} disabled={addingTask}>
+              <Text style={styles.addButtonText}>{showInput ? 'Cancel' : '+ Quick add'}</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" style={styles.fullFormButton} onPress={() => router.push('/create-task' as never)} disabled={addingTask}>
+              <Text style={styles.fullFormText}>Full form</Text>
+            </Pressable>
+          </View>
         </View>
 
         {showInput ? (
@@ -991,6 +966,7 @@ export default function HomeScreen() {
 
             {canRetryError ? (
               <Pressable
+                accessibilityRole="button"
                 style={styles.retryButton}
                 onPress={() => loadTasks(true)}
               >
@@ -1145,12 +1121,14 @@ const styles = StyleSheet.create({
 
   summaryRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 10,
     marginTop: 26,
   },
 
   summaryCard: {
-    flex: 1,
+    flexBasis: '47%',
+    flexGrow: 1,
     minHeight: 100,
     padding: 13,
     borderRadius: 15,
@@ -1169,9 +1147,35 @@ const styles = StyleSheet.create({
     backgroundColor: '#DDF7EA',
   },
 
+  overdueCard: {
+    backgroundColor: '#FFE8E7',
+  },
+
+  distributionCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E7E9F2',
+    padding: 14,
+    marginTop: 12,
+  },
+
+  distributionText: { color: '#626982', fontSize: 12, marginTop: 12 },
+  emptyDashboardText: { color: '#777D91', fontSize: 13, marginTop: 8, lineHeight: 20 },
+  distributionTrack: { flexDirection: 'row', height: 10, overflow: 'hidden', borderRadius: 5, backgroundColor: '#EDF0F6', marginTop: 6 },
+  pendingBar: { backgroundColor: '#E4A23B' },
+  completedBar: { backgroundColor: '#45A477' },
+  lowBar: { backgroundColor: '#45A477' },
+  mediumBar: { backgroundColor: '#E4A23B' },
+  highBar: { backgroundColor: '#C75050' },
+
+  headerActions: { alignItems: 'flex-end', gap: 4 },
+  fullFormButton: { minHeight: 48, justifyContent: 'center', paddingHorizontal: 10 },
+  fullFormText: { color: '#5968D8', fontSize: 12, fontWeight: '700' },
+
   summaryLabel: {
     color: '#626982',
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.5,
   },
@@ -1204,13 +1208,20 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
+  resetControl: {
+    minHeight: 48,
+    minWidth: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
   resetFiltersDisabled: {
     opacity: 0.45,
   },
 
   filterLabel: {
     color: '#626982',
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
     marginTop: 12,
     marginBottom: 7,
@@ -1223,7 +1234,7 @@ const styles = StyleSheet.create({
   },
 
   filterChip: {
-    minHeight: 34,
+    minHeight: 48,
     justifyContent: 'center',
     paddingHorizontal: 12,
     borderRadius: 17,
@@ -1275,7 +1286,7 @@ const styles = StyleSheet.create({
   },
 
   addButton: {
-    minHeight: 44,
+    minHeight: 48,
     backgroundColor: '#5968D8',
     paddingHorizontal: 15,
     borderRadius: 10,
@@ -1313,7 +1324,7 @@ const styles = StyleSheet.create({
   },
 
   priorityPicker: {
-    minHeight: 44,
+    minHeight: 48,
     paddingHorizontal: 13,
     borderRadius: 9,
     backgroundColor: '#F6F7FB',
@@ -1327,7 +1338,7 @@ const styles = StyleSheet.create({
   },
 
   saveButton: {
-    minHeight: 44,
+    minHeight: 48,
     alignSelf: 'flex-start',
     backgroundColor: '#20243A',
     paddingHorizontal: 16,
@@ -1370,7 +1381,7 @@ const styles = StyleSheet.create({
   },
 
   retryButton: {
-    minHeight: 40,
+    minHeight: 48,
     alignSelf: 'flex-start',
     justifyContent: 'center',
     paddingHorizontal: 14,
@@ -1400,8 +1411,8 @@ const styles = StyleSheet.create({
   },
 
   checkbox: {
-    width: 44,
-    height: 44,
+    width: 48,
+    height: 48,
     borderRadius: 8,
     borderWidth: 1.5,
     borderColor: '#C6CBDA',
@@ -1433,6 +1444,9 @@ const styles = StyleSheet.create({
     lineHeight: 21,
   },
 
+  detailsLink: { minHeight: 48, justifyContent: 'center' },
+  overdueLabel: { color: '#B42318', fontSize: 12, fontWeight: '800', marginTop: 3 },
+
   completedTitle: {
     color: '#9096A8',
     textDecorationLine: 'line-through',
@@ -1447,7 +1461,7 @@ const styles = StyleSheet.create({
 
   taskMeta: {
     color: '#858BA0',
-    fontSize: 11,
+    fontSize: 12,
     marginTop: 6,
   },
 
@@ -1468,7 +1482,7 @@ const styles = StyleSheet.create({
   },
 
   taskAction: {
-    minHeight: 36,
+    minHeight: 48,
     justifyContent: 'center',
     paddingHorizontal: 10,
   },
@@ -1486,7 +1500,7 @@ const styles = StyleSheet.create({
   },
 
   priority: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
     paddingHorizontal: 9,
     paddingVertical: 5,
@@ -1511,7 +1525,7 @@ const styles = StyleSheet.create({
 
   status: {
     color: '#858BA0',
-    fontSize: 10,
+    fontSize: 12,
   },
 
   emptyCard: {
@@ -1535,7 +1549,7 @@ const styles = StyleSheet.create({
   },
 
   resetEmptyButton: {
-    minHeight: 40,
+    minHeight: 48,
     justifyContent: 'center',
     paddingHorizontal: 14,
     marginTop: 10,
