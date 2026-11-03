@@ -1,17 +1,17 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 
 import {
   ActivityIndicator,
   Alert,
   Pressable,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { router } from 'expo-router';
 
@@ -35,6 +35,7 @@ export default function RegisterScreen() {
   } | null>(null);
 
   const [loading, setLoading] = useState(false);
+  const submissionInProgress = useRef(false);
 
   function validateForm(): boolean {
     const newErrors = validateRegistrationForm(
@@ -59,7 +60,7 @@ export default function RegisterScreen() {
   }
 
   async function handleRegister() {
-    if (loading) {
+    if (submissionInProgress.current || loading) {
       return;
     }
 
@@ -70,6 +71,7 @@ export default function RegisterScreen() {
     }
 
     setLoading(true);
+    submissionInProgress.current = true;
 
     try {
       await register(
@@ -78,16 +80,18 @@ export default function RegisterScreen() {
         name.trim()
       );
 
-      Alert.alert(
-        'Registration successful',
-        'Your account has been created. Please log in.',
-        [
-          {
-            text: 'OK',
-            onPress: () => router.replace('/login'),
-          },
-        ]
-      );
+      if (Platform.OS === 'web') {
+        setFormError({
+          title: 'Registration successful',
+          message: 'Your account has been created. Please log in.',
+        });
+      } else {
+        Alert.alert(
+          'Registration successful',
+          'Your account has been created. Please log in.',
+          [{ text: 'OK', onPress: () => router.replace('/login') }]
+        );
+      }
     } catch (error: unknown) {
       const code = error instanceof ApiError ? error.code : undefined;
 
@@ -115,6 +119,7 @@ export default function RegisterScreen() {
         );
       }
     } finally {
+      submissionInProgress.current = false;
       setLoading(false);
     }
   }
@@ -134,9 +139,21 @@ export default function RegisterScreen() {
         </View>
 
         {formError ? (
-          <View style={styles.backendError}>
-            <Text style={styles.backendErrorTitle}>{formError.title}</Text>
-            <Text style={styles.backendErrorMessage}>{formError.message}</Text>
+          <View
+            accessibilityRole="alert"
+            style={[
+              styles.backendError,
+              formError.title === 'Registration successful' && styles.successMessage,
+            ]}
+          >
+            <Text style={[
+              styles.backendErrorTitle,
+              formError.title === 'Registration successful' && styles.successText,
+            ]}>{formError.title}</Text>
+            <Text style={[
+              styles.backendErrorMessage,
+              formError.title === 'Registration successful' && styles.successText,
+            ]}>{formError.message}</Text>
           </View>
         ) : null}
 
@@ -145,6 +162,8 @@ export default function RegisterScreen() {
           <Text style={styles.label}>Name</Text>
 
           <TextInput
+            accessibilityLabel="Name"
+            accessibilityHint={errors.name || 'Enter your name.'}
             style={[
               styles.input,
               errors.name && styles.inputError,
@@ -173,6 +192,8 @@ export default function RegisterScreen() {
           <Text style={styles.label}>Email</Text>
 
           <TextInput
+            accessibilityLabel="Email"
+            accessibilityHint={errors.email || 'Enter your email address.'}
             style={[
               styles.input,
               errors.email && styles.inputError,
@@ -203,6 +224,8 @@ export default function RegisterScreen() {
           <Text style={styles.label}>Password</Text>
 
           <TextInput
+            accessibilityLabel="Password"
+            accessibilityHint={errors.password || 'Enter a password that meets the listed requirements.'}
             style={[
               styles.input,
               errors.password && styles.inputError,
@@ -237,6 +260,8 @@ export default function RegisterScreen() {
           <Text style={styles.label}>Confirm Password</Text>
 
           <TextInput
+            accessibilityLabel="Confirm Password"
+            accessibilityHint={errors.confirmPassword || 'Re-enter your password to confirm it.'}
             style={[
               styles.input,
               errors.confirmPassword && styles.inputError,
@@ -266,6 +291,8 @@ export default function RegisterScreen() {
 
           {/* Register */}
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Register"
             style={({ pressed }) => [
               styles.button,
               pressed && styles.buttonPressed,
@@ -335,10 +362,19 @@ const styles = StyleSheet.create({
     borderColor: '#F1C5C5',
   },
 
+  successMessage: {
+    backgroundColor: '#ECFDF3',
+    borderColor: '#A6F4C5',
+  },
+
   backendErrorTitle: {
     color: '#A52A2A',
     fontSize: 14,
     fontWeight: '700',
+  },
+
+  successText: {
+    color: '#237A4B',
   },
 
   backendErrorMessage: {

@@ -7,6 +7,11 @@ const WEB_STORAGE_KEY = 'task-manager-auth-session';
 export type Session = {
   accessToken: string;
   refreshToken?: string;
+  user?: {
+    id: number | string;
+    email: string;
+    name: string;
+  };
 };
 
 function parseSession(value: string | null): Session | null {
@@ -30,6 +35,24 @@ function parseSession(value: string | null): Session | null {
         typeof parsed.refreshToken === 'string'
       ) {
         session.refreshToken = parsed.refreshToken;
+      }
+
+      if (
+        'user' in parsed &&
+        typeof parsed.user === 'object' &&
+        parsed.user !== null &&
+        'id' in parsed.user &&
+        'email' in parsed.user &&
+        'name' in parsed.user &&
+        (typeof parsed.user.id === 'number' || typeof parsed.user.id === 'string') &&
+        typeof parsed.user.email === 'string' &&
+        typeof parsed.user.name === 'string'
+      ) {
+        session.user = {
+          id: parsed.user.id,
+          email: parsed.user.email,
+          name: parsed.user.name,
+        };
       }
       return session;
     }

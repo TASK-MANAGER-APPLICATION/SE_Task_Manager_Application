@@ -5,6 +5,12 @@ export type RegistrationErrors = {
   confirmPassword?: string;
 };
 
+export type ChangePasswordErrors = {
+  currentPassword?: string;
+  newPassword?: string;
+  confirmPassword?: string;
+};
+
 export function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
@@ -17,6 +23,33 @@ export function isStrongPassword(password: string): boolean {
     /\d/.test(password) &&
     /[^A-Za-z0-9]/.test(password)
   );
+}
+
+export function validateChangePasswordForm(
+  currentPassword: string,
+  newPassword: string,
+  confirmPassword: string
+): ChangePasswordErrors {
+  const errors: ChangePasswordErrors = {};
+
+  if (!currentPassword) {
+    errors.currentPassword = 'Current password is required.';
+  }
+
+  if (!newPassword) {
+    errors.newPassword = 'New password is required.';
+  } else if (!isStrongPassword(newPassword)) {
+    errors.newPassword =
+      'Password must be at least 8 characters and include uppercase, lowercase, a number, and a special character.';
+  }
+
+  if (!confirmPassword) {
+    errors.confirmPassword = 'Please confirm your new password.';
+  } else if (newPassword !== confirmPassword) {
+    errors.confirmPassword = 'Passwords do not match.';
+  }
+
+  return errors;
 }
 
 export function validateRegistrationForm(

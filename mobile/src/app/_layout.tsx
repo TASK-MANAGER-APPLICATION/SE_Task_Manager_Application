@@ -19,9 +19,12 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
   const pathname = usePathname();
 
-  const isAuthScreen =
+  const isStackScreen =
     pathname === '/login' ||
-    pathname === '/register';
+    pathname === '/register' ||
+    pathname === '/change-password' ||
+    pathname === '/create-task' ||
+    pathname.startsWith('/task/');
 
   return (
     <ThemeProvider
@@ -33,7 +36,7 @@ export default function RootLayout() {
     >
       <AnimatedSplashOverlay />
 
-      {isAuthScreen ? (
+      {isStackScreen ? (
         <Stack
           screenOptions={{
             headerShown: false,

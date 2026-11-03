@@ -6,6 +6,7 @@ export default function AppTabsWeb() {
 
   const isHome = pathname === '/home' || pathname === '/';
   const isExplore = pathname === '/explore';
+  const isProfile = pathname === '/profile';
 
   return (
     <View style={styles.root}>
@@ -28,6 +29,12 @@ export default function AppTabsWeb() {
                 ]}
               >
                 Explore
+              </Text>
+            </Link>
+
+            <Link href={'/profile' as never} style={styles.link}>
+              <Text style={[styles.linkText, isProfile && styles.activeText]}>
+                Profile
               </Text>
             </Link>
           </View>

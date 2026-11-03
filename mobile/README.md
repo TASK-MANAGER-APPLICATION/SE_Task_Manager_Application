@@ -1,56 +1,81 @@
-# Welcome to your Expo app 👋
+# Task Manager Mobile
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+React Native and Expo Router client for the Task Manager application.
 
-## Get started
+## Requirements
 
-1. Install dependencies
+- Node.js and npm
+- PostgreSQL for the backend
+- A reachable backend URL for the device or browser running the app
 
-   ```bash
-   npm install
-   ```
+## Clone and install
 
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **src/app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```powershell
+git clone <repository-url>
+cd SE_Task_Manager_Application
+cd mobile
+npm install
 ```
 
-This command will move the starter code to the **example** directory and create a blank **src/app** directory where you can start developing.
+Install backend dependencies separately from the repository root:
 
-### Other setup steps
+```powershell
+cd backend
+npm install
+```
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+## Start the backend
 
-## Learn more
+Start PostgreSQL and configure `backend/.env` with either `DATABASE_URL` or the
+`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD` values. `PORT` is
+optional and defaults to `3000`.
 
-To learn more about developing your project with Expo, look at the following resources:
+From `backend/`, initialize the database and start the API:
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```powershell
+npm run migrate
+npm start
+```
 
-## Join the community
+The mobile client calls the backend at `http://localhost:3000` by default. Set
+`EXPO_PUBLIC_API_BASE_URL` to an address reachable from the app device when
+`localhost` does not refer to the backend host. For example, set it in
+PowerShell before starting Expo:
 
-Join our community of developers creating universal apps.
+```powershell
+$env:EXPO_PUBLIC_API_BASE_URL = "http://<host-reachable-from-device>:3000"
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Start the mobile app
+
+From `mobile/`:
+
+```powershell
+npx expo start
+```
+
+Expo Router provides the app screens. Use the terminal prompts to open a
+supported simulator/device or the web client.
+
+## Quality checks
+
+Run these commands from `mobile/`:
+
+```powershell
+npx tsc --noEmit
+npx eslint src
+npm test -- --runInBand
+```
+
+## Current backend limitations
+
+The mobile client uses the available authentication and task endpoints. The
+current backend does not provide forgot/reset-password endpoints, category
+management endpoints, profile GET/PUT endpoints, FCM device-token registration,
+or reminder notification delivery. Profile edits are stored locally in the
+mobile session; category assignment accepts an existing category ID. Task
+details are loaded by finding the task in `GET /tasks`, because there is no
+`GET /tasks/:id` endpoint.
+
+An Android SDK, native Android project directory, and EAS build configuration
+are not included in this checkout. An installable APK has not been built.

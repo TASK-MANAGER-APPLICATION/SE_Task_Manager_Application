@@ -1,23 +1,24 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 
 import {
   ActivityIndicator,
   Alert,
   Pressable,
   Platform,
-  SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { router } from 'expo-router';
 
 import { ApiError, login } from '../services/api';
 import { saveSession } from '../services/authStorage';
 
-export default function LoginScreen() {
+export default function LoginScreen({ onAuthenticated }: { onAuthenticated?: () => void } = {}) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
@@ -29,6 +30,7 @@ export default function LoginScreen() {
   } | null>(null);
 
   const [loading, setLoading] = useState(false);
+  const submissionInProgress = useRef(false);
 
   function validateForm(): boolean {
     let valid = true;
@@ -65,10 +67,12 @@ export default function LoginScreen() {
   }
 
   async function handleLogin() {
+    if (submissionInProgress.current || loading) return;
     if (!validateForm()) {
       return;
     }
 
+    submissionInProgress.current = true;
     setLoading(true);
 
     try {
@@ -79,9 +83,11 @@ export default function LoginScreen() {
 
       await saveSession({
         accessToken: response.token,
+        user: response.user,
       });
 
-      router.replace('/home');
+      if (onAuthenticated) onAuthenticated();
+      else router.replace('/home');
     } catch (error) {
       if (error instanceof ApiError) {
         if (error.code === 'INVALID_CREDENTIALS') {
@@ -109,13 +115,17 @@ export default function LoginScreen() {
         );
       }
     } finally {
+      submissionInProgress.current = false;
       setLoading(false);
     }
   }
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
+      <ScrollView
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.header}>
           <Text style={styles.title}>Welcome Back</Text>
 
@@ -135,6 +145,8 @@ export default function LoginScreen() {
           <Text style={styles.label}>Email</Text>
 
           <TextInput
+            accessibilityLabel="Email"
+            accessibilityHint={emailError || 'Enter your account email address.'}
             style={[
               styles.input,
               emailError && styles.inputError,
@@ -164,6 +176,8 @@ export default function LoginScreen() {
           <Text style={styles.label}>Password</Text>
 
           <TextInput
+            accessibilityLabel="Password"
+            accessibilityHint={passwordError || 'Enter your account password.'}
             style={[
               styles.input,
               passwordError && styles.inputError,
@@ -192,6 +206,8 @@ export default function LoginScreen() {
           ) : null}
 
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Login"
             style={({ pressed }) => [
               styles.button,
               pressed && styles.buttonPressed,
@@ -219,7 +235,7 @@ export default function LoginScreen() {
             </Text>
           </Pressable>
         </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -231,7 +247,7 @@ const styles = StyleSheet.create({
   },
 
   container: {
-    flex: 1,
+    flexGrow: 1,
     justifyContent: 'center',
     padding: 24,
   },
