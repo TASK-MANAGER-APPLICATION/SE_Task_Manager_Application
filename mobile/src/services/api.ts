@@ -1,4 +1,5 @@
 import { clearSession, getSession } from './authStorage';
+import { notifySessionExpired } from './sessionEvents';
 
 const API_BASE_URL =
   (
@@ -121,6 +122,7 @@ async function request<T>(
 
     if (code === 'SESSION_EXPIRED') {
       await clearSession();
+      notifySessionExpired();
     }
 
     throw new ApiError(message, response.status, code);

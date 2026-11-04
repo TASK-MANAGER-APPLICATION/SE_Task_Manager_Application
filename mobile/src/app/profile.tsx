@@ -98,9 +98,7 @@ export default function ProfileScreen() {
       await logout();
       router.replace('/login');
     } catch (cause) {
-      if (cause instanceof ApiError && (cause.code === 'SESSION_EXPIRED' || cause.status === 401)) {
-        await clearSession();
-        router.replace('/login');
+      if (cause instanceof ApiError && cause.code === 'SESSION_EXPIRED') {
         return;
       }
       setLogoutError(cause instanceof ApiError

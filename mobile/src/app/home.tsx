@@ -27,7 +27,6 @@ import {
   updateTask,
 } from '../services/api';
 
-import { clearSession } from '../services/authStorage';
 import { calculateDashboardSummary, filterAndSortTasks, isTaskOverdue } from '../services/taskPresentation';
 
 type StatusFilter = 'All' | 'Pending' | 'Completed';
@@ -142,26 +141,6 @@ export default function HomeScreen() {
     );
   }
 
-  const handleSessionExpired = useCallback(() => {
-    clearSession().finally(() => {
-      if (Platform.OS === 'web') {
-        router.replace('/login');
-        return;
-      }
-
-      Alert.alert(
-        'Session expired',
-        'Your session has expired. Please log in again.',
-        [
-          {
-            text: 'Login',
-            onPress: () => router.replace('/login'),
-          },
-        ]
-      );
-    });
-  }, []);
-
   const loadTasks = useCallback(async (showLoading = true) => {
     if (showLoading) {
       setLoading(true);
@@ -178,11 +157,7 @@ export default function HomeScreen() {
 
       setTasks(result.tasks);
     } catch (err) {
-      if (
-        err instanceof ApiError &&
-        (err.code === 'SESSION_EXPIRED' || err.status === 401)
-      ) {
-        handleSessionExpired();
+      if (err instanceof ApiError && err.code === 'SESSION_EXPIRED') {
         return;
       }
 
@@ -200,18 +175,14 @@ export default function HomeScreen() {
         setLoading(false);
       }
     }
-  }, [handleSessionExpired]);
+  }, []);
 
   function handleTaskError(
     err: unknown,
     title: string,
     fallback: string
   ) {
-    if (
-      err instanceof ApiError &&
-      (err.code === 'SESSION_EXPIRED' || err.status === 401)
-    ) {
-      handleSessionExpired();
+    if (err instanceof ApiError && err.code === 'SESSION_EXPIRED') {
       return;
     }
 
@@ -241,11 +212,7 @@ export default function HomeScreen() {
       setTasks(result.tasks);
       setError('');
     } catch (err) {
-      if (
-        err instanceof ApiError &&
-        (err.code === 'SESSION_EXPIRED' || err.status === 401)
-      ) {
-        handleSessionExpired();
+      if (err instanceof ApiError && err.code === 'SESSION_EXPIRED') {
         return;
       }
 

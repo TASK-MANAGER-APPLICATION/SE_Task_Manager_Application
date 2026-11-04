@@ -87,20 +87,6 @@ describe('ChangePasswordScreen', () => {
     expect(clearSession).not.toHaveBeenCalled();
   });
 
-  test.each([
-    new ApiError('Session expired.', 401, 'SESSION_EXPIRED'),
-    new ApiError('Unauthorized.', 401, 'UNAUTHORIZED'),
-  ])('clears session on expired or unauthorized response', async (apiError) => {
-    jest.mocked(changePassword).mockRejectedValue(apiError);
-    const screen = await render(<ChangePasswordScreen />);
-    await fireEvent.changeText(screen.getByLabelText('Current Password'), 'Current123!');
-    await fireEvent.changeText(screen.getByLabelText('New Password'), strongPassword);
-    await fireEvent.changeText(screen.getByLabelText('Confirm New Password'), strongPassword);
-    await fireEvent.press(screen.getByText('Update Password'));
-    await waitFor(() => expect(clearSession).toHaveBeenCalled());
-    expect(Alert.alert).toHaveBeenCalledWith('Session expired', expect.any(String), expect.any(Array));
-  });
-
   test('shows weak-password API errors', async () => {
     jest.mocked(changePassword).mockRejectedValue(new ApiError('The new password does not meet the requirements.', 400, 'WEAK_PASSWORD'));
     const screen = await render(<ChangePasswordScreen />);

@@ -1,4 +1,4 @@
-import { logout } from '../api';
+import { apiRequest, logout } from '../api';
 import { clearSession, getSession } from '../authStorage';
 
 jest.mock('../authStorage', () => ({
@@ -29,5 +29,20 @@ describe('logout API client', () => {
 
     await expect(logout()).rejects.toMatchObject({ code: 'INTERNAL_ERROR', status: 500 });
     expect(clearSession).not.toHaveBeenCalled();
+  });
+
+  test('clears local auth when the backend reports an expired session', async () => {
+    jest.mocked(getSession).mockResolvedValue({ accessToken: 'expired-token' });
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue({
+      status: 401,
+      ok: false,
+      json: async () => ({ code: 'SESSION_EXPIRED', message: 'Session expired.' }),
+    } as Response);
+
+    await expect(apiRequest('/tasks')).rejects.toMatchObject({
+      code: 'SESSION_EXPIRED',
+      status: 401,
+    });
+    expect(clearSession).toHaveBeenCalledTimes(1);
   });
 });

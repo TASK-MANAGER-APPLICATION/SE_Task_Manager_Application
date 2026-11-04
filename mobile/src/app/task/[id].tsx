@@ -14,7 +14,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 
 import { ApiError, completeTask, deleteTask, getTasks, Task, updateTask } from '../../services/api';
-import { clearSession } from '../../services/authStorage';
 import { validateTaskForm } from '../../services/taskFormValidation';
 
 function displayDate(value: string | null | undefined) {
@@ -42,11 +41,6 @@ export default function TaskDetailsScreen() {
   const [categoryId, setCategoryId] = useState('');
   const [fieldError, setFieldError] = useState('');
 
-  const handleSessionExpired = useCallback(async () => {
-    await clearSession();
-    router.replace('/login');
-  }, []);
-
   const loadTask = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -65,15 +59,15 @@ export default function TaskDetailsScreen() {
       setPriority(found.priority ?? 'Medium');
       setCategoryId(found.category_id == null ? '' : String(found.category_id));
     } catch (cause) {
-      if (cause instanceof ApiError && (cause.code === 'SESSION_EXPIRED' || cause.status === 401)) {
-        await handleSessionExpired();
+      if (cause instanceof ApiError && cause.code === 'SESSION_EXPIRED') {
+        return;
       } else {
         setError(cause instanceof ApiError ? cause.message : 'Unable to load this task. Please try again.');
       }
     } finally {
       setLoading(false);
     }
-  }, [handleSessionExpired, id]);
+  }, [id]);
 
   useEffect(() => {
     const timer = setTimeout(() => { void loadTask(); }, 0);
@@ -108,8 +102,8 @@ export default function TaskDetailsScreen() {
       setCategoryId(result.task.category_id == null ? '' : String(result.task.category_id));
       setEditing(false);
     } catch (cause) {
-      if (cause instanceof ApiError && (cause.code === 'SESSION_EXPIRED' || cause.status === 401)) {
-        await handleSessionExpired();
+      if (cause instanceof ApiError && cause.code === 'SESSION_EXPIRED') {
+        return;
       } else {
         setError(cause instanceof ApiError ? cause.message : 'Unable to save this task. Please try again.');
       }
@@ -128,8 +122,8 @@ export default function TaskDetailsScreen() {
     } catch (cause) {
       if (cause instanceof ApiError && cause.code === 'ALREADY_COMPLETED') {
         await loadTask();
-      } else if (cause instanceof ApiError && (cause.code === 'SESSION_EXPIRED' || cause.status === 401)) {
-        await handleSessionExpired();
+      } else if (cause instanceof ApiError && cause.code === 'SESSION_EXPIRED') {
+        return;
       } else {
         setError(cause instanceof ApiError ? cause.message : 'Unable to complete this task. Please try again.');
       }
@@ -146,8 +140,8 @@ export default function TaskDetailsScreen() {
       await deleteTask(task.id);
       router.replace('/home');
     } catch (cause) {
-      if (cause instanceof ApiError && (cause.code === 'SESSION_EXPIRED' || cause.status === 401)) {
-        await handleSessionExpired();
+      if (cause instanceof ApiError && cause.code === 'SESSION_EXPIRED') {
+        return;
       } else {
         setError(cause instanceof ApiError ? cause.message : 'Unable to delete this task. Please try again.');
       }
