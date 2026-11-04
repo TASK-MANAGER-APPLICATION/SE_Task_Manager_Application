@@ -16,7 +16,10 @@ function createSessionToken() {
 router.post("/register", async (req, res) => {
   const { email, password, name } = req.body;
 
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (
+    typeof email !== "string" ||
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+  ) {
     return res.status(400).json({
       code: "INVALID_EMAIL",
       message: "Enter a valid email address.",
