@@ -34,7 +34,7 @@ Version 0.1, Sunday 25 Oct 2026. Test case IDs are provisional and will be mappe
 | FR-28 | Session timeout | Auth middleware | 1 | TC-AUTH-07, TC-UI-02 | Implemented; automated tests pass |
 | NFR-01 | Dashboard under 3 seconds | Dashboard service | 3 | TC-PERF-01 | Not started |
 | NFR-02 | Hashed passwords | Auth service | 1 | TC-SEC-01 | Implemented; automated tests pass |
-| NFR-03 | Authenticated access | Auth middleware | 1 | TC-SEC-02 | SRS requirement implemented and tested; issues #50/#51 criteria unavailable |
+| NFR-03 | Authenticated access | Auth middleware | 1 | TC-SEC-02 | SRS requirement implemented and automated tests pass; issues #50/#51 are not formally verified because issue-specific acceptance criteria are unavailable |
 | NFR-04 | No cross-user access | Data access layer | 2 | TC-SEC-03, TC-SEC-04 | Implemented; automated tests pass |
 | NFR-05 | No data loss | Task service transactions | 2 | TC-TASK-10 | Implemented; automated tests pass |
 | NFR-06 | Data unaltered except by user | Task service, scheduler | 2 | TC-TASK-11 | Implemented; automated tests pass |
@@ -42,4 +42,4 @@ Version 0.1, Sunday 25 Oct 2026. Test case IDs are provisional and will be mappe
 | NFR-08 | 1,000 tasks per user | Seed script, dashboard service | 3 | TC-PERF-02 | Not started |
 | NFR-09 | Action timestamps | Audit service | 2 | TC-TASK-09 | SRS requirement implemented and tested; issue #57 criteria unavailable |
 
-Statuses reflect the SRS and available implementation/test evidence. GitHub descriptions and acceptance criteria for issues #20, #50, #51, and #57 were unavailable; this matrix does not claim their issue-specific criteria are complete.
+Statuses reflect the SRS and available implementation/test evidence; implemented and tested does not mean formally verified against issue-specific criteria. GitHub descriptions and acceptance criteria for issues #20, #50, #51, and #57 were unavailable (issues #50 and #51 also have no comments specifying criteria). For formal verification of #50/#51, the issue owners must provide the acceptance criteria, including the precise protected routes and session/authentication cases to cover and the evidence required to pass. Until then, NFR-03 is only verified against the SRS and current automated tests.

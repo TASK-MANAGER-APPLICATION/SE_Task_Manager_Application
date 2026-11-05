@@ -334,6 +334,66 @@ describe("Tasks API", () => {
     ).toBe(false);
   });
 
+  test("prevents cross-user task access and preserves the owner's data and audit events", async () => {
+    const created = await request(app)
+      .post("/tasks")
+      .auth(tokenB, { type: "bearer" })
+      .send({ title: "Private task for user B" });
+    expect(created.status).toBe(201);
+    const foreignTaskId = created.body.task.id;
+
+    const listedWithOwnerId = await request(app)
+      .get("/tasks")
+      .query({ user_id: userBId })
+      .auth(tokenA, { type: "bearer" });
+    expect(listedWithOwnerId.status).toBe(200);
+    expect(
+      listedWithOwnerId.body.tasks.some(
+        (task) => String(task.id) === String(foreignTaskId)
+      )
+    ).toBe(false);
+
+    const edit = await request(app)
+      .put(`/tasks/${foreignTaskId}`)
+      .query({ user_id: userBId })
+      .auth(tokenA, { type: "bearer" })
+      .send({ title: "Unauthorized edit", user_id: userBId });
+    const complete = await request(app)
+      .patch(`/tasks/${foreignTaskId}/complete`)
+      .query({ user_id: userBId })
+      .auth(tokenA, { type: "bearer" })
+      .send({ user_id: userBId });
+    const deletion = await request(app)
+      .delete(`/tasks/${foreignTaskId}`)
+      .query({ user_id: userBId })
+      .auth(tokenA, { type: "bearer" })
+      .send({ user_id: userBId });
+
+    expect(edit.status).toBe(404);
+    expect(complete.status).toBe(404);
+    expect(deletion.status).toBe(404);
+
+    const storedTask = await pool.query(
+      "SELECT user_id, title, status, completed_at FROM tasks WHERE id = $1",
+      [foreignTaskId]
+    );
+    expect(String(storedTask.rows[0].user_id)).toBe(String(userBId));
+    expect(storedTask.rows[0]).toMatchObject({
+      title: "Private task for user B",
+      status: "Pending",
+      completed_at: null,
+    });
+
+    const events = await pool.query(
+      "SELECT user_id, action FROM task_events WHERE task_id = $1 ORDER BY id",
+      [foreignTaskId]
+    );
+    expect(events.rows.map((event) => String(event.user_id))).toEqual([
+      String(userBId),
+    ]);
+    expect(events.rows.map((event) => event.action)).toEqual(["CREATED"]);
+  });
+
   test("edits a task owned by the authenticated user", async () => {
     const response = await request(app)
       .put(`/tasks/${taskId}`)

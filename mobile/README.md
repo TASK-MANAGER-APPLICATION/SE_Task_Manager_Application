@@ -62,6 +62,24 @@ list of exact origins, for example
 Bearer tokens in the `Authorization` header and does not use cross-origin
 cookies.
 
+### Production CORS
+
+In production, set `CORS_ORIGINS` in the backend deployment environment to the
+exact public web origins that are allowed to call the API, then redeploy or
+restart the backend. Include the scheme and any non-default port, but not a
+path, for example:
+
+```text
+CORS_ORIGINS=https://tasks.example.com,https://admin.example.com
+```
+
+Separate multiple origins with commas; surrounding whitespace is trimmed. When
+`CORS_ORIGINS` is set, it replaces the local development origin defaults.
+Specify explicit origins rather than `*`. The API does not enable credentialed
+CORS or cross-origin cookies; the mobile client sends its bearer token in the
+`Authorization` header. Keep the allowed-origin list limited to trusted
+production web clients.
+
 ## Start the mobile app
 
 From `mobile/`:

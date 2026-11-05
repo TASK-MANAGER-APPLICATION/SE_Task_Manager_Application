@@ -1,5 +1,6 @@
 import * as Keychain from 'react-native-keychain';
 import { Platform } from 'react-native';
+import { resetSessionExpired } from './sessionEvents';
 
 const SERVICE_NAME = 'task-manager-auth';
 const WEB_STORAGE_KEY = 'task-manager-auth-session';
@@ -68,6 +69,7 @@ export async function saveSession(session: Session): Promise<void> {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(WEB_STORAGE_KEY, JSON.stringify(session));
     }
+    resetSessionExpired();
     return;
   }
 
@@ -78,6 +80,7 @@ export async function saveSession(session: Session): Promise<void> {
       service: SERVICE_NAME,
     }
   );
+  resetSessionExpired();
 }
 
 export async function getSession(): Promise<Session | null> {
