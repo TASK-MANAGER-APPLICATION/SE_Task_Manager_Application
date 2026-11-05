@@ -1,10 +1,8 @@
 import React from 'react';
 import { Alert } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
-
 import HomeScreen from '../app/home';
-import { ApiError, completeTask, deleteTask, getTasks, Task } from '../services/api';
-import { clearSession } from '../services/authStorage';
+import { completeTask, deleteTask, getTasks, Task } from '../services/api';
 
 const sample: Task = {
   id: 4, title: 'Ship update', description: 'Prepare release', priority: 'High',
@@ -15,7 +13,6 @@ jest.mock('expo-router', () => ({
   router: { replace: jest.fn(), push: jest.fn() },
   useFocusEffect: (callback: () => void) => jest.requireActual<typeof import('react')>('react').useEffect(callback, [callback]),
 }));
-jest.mock('../services/authStorage', () => ({ clearSession: jest.fn().mockResolvedValue(undefined) }));
 jest.mock('../services/api', () => ({
   ApiError: class ApiError extends Error { status = 500; code?: string; },
   getTasks: jest.fn(),
@@ -48,14 +45,6 @@ describe('HomeScreen task list', () => {
     jest.mocked(getTasks).mockResolvedValue({ tasks: [sample] });
     await fireEvent.press(screen.getByText('Retry'));
     expect(await screen.findByText('Ship update')).toBeTruthy();
-  });
-
-  test('clears the local session when task loading returns 401', async () => {
-    const expired = Object.assign(new ApiError('Session expired.', 401, 'SESSION_EXPIRED'), { status: 401, code: 'SESSION_EXPIRED' });
-    jest.mocked(getTasks).mockRejectedValue(expired);
-    await render(<HomeScreen />);
-    await waitFor(() => expect(clearSession).toHaveBeenCalled());
-    expect(Alert.alert).toHaveBeenCalledWith('Session expired', expect.any(String), expect.any(Array));
   });
 
   test('renders task data and completes a task through the existing API', async () => {

@@ -27,13 +27,6 @@ export default function ChangePasswordScreen() {
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  async function expireSession() {
-    await clearSession();
-    Alert.alert('Session expired', 'Please log in again.', [
-      { text: 'Log in', onPress: () => router.replace('/login') },
-    ]);
-  }
-
   async function handleSubmit() {
     if (saving) return;
     setFormError('');
@@ -55,12 +48,8 @@ export default function ChangePasswordScreen() {
         [{ text: 'Log in', onPress: () => router.replace('/login') }]
       );
     } catch (error) {
-      if (
-        error instanceof ApiError &&
-        (error.code === 'SESSION_EXPIRED' ||
-          (error.status === 401 && error.code !== 'INVALID_CREDENTIALS'))
-      ) {
-        await expireSession();
+      if (error instanceof ApiError && error.code === 'SESSION_EXPIRED') {
+        return;
       } else if (
         error instanceof ApiError &&
         error.code === 'INVALID_CREDENTIALS'

@@ -12,7 +12,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 
 import { ApiError, createTask } from '../services/api';
-import { clearSession } from '../services/authStorage';
 import { TaskFormErrors, TaskFormValues, toCreateTaskInput, validateTaskForm } from '../services/taskFormValidation';
 
 const initialValues: TaskFormValues = {
@@ -44,9 +43,8 @@ export default function CreateTaskScreen({ onCreated }: { onCreated?: () => void
       if (onCreated) onCreated();
       else router.replace('/home');
     } catch (error) {
-      if (error instanceof ApiError && (error.code === 'SESSION_EXPIRED' || error.status === 401)) {
-        await clearSession();
-        router.replace('/login');
+      if (error instanceof ApiError && error.code === 'SESSION_EXPIRED') {
+        return;
       } else if (error instanceof ApiError && error.code === 'INVALID_TITLE') {
         setErrors({ title: error.message });
       } else if (error instanceof ApiError && error.code === 'INVALID_DUE_DATE') {

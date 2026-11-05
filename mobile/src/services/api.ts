@@ -1,7 +1,12 @@
 import { clearSession, getSession } from './authStorage';
+import { clearSessionAndNotifyOnce } from './sessionEvents';
 
 const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+  (
+    process.env.EXPO_PUBLIC_API_BASE_URL ||
+    process.env.EXPO_PUBLIC_API_URL ||
+    'http://localhost:3000'
+  ).replace(/\/+$/, '');
 
 export type User = {
   id: number | string;
@@ -54,12 +59,13 @@ async function request<T>(
   const session = await getSession();
 
   const headers = new Headers(options.headers);
+  const isLoginRequest = path === '/auth/login';
 
   if (!headers.has('Content-Type') && options.body) {
     headers.set('Content-Type', 'application/json');
   }
 
-  if (session?.accessToken) {
+  if (session?.accessToken && !isLoginRequest) {
     headers.set('Authorization', `Bearer ${session.accessToken}`);
   }
 
@@ -93,9 +99,21 @@ async function request<T>(
   if (!response.ok) {
     const errorData = data as ApiErrorResponse | null;
 
+    const code =
+      typeof errorData?.code === 'string'
+        ? errorData.code
+        : typeof errorData?.error === 'string'
+          ? errorData.error
+          : undefined;
+
     const fallbackMessages: Record<number, string> = {
       400: 'Please check the information you entered and try again.',
-      401: 'Your session has expired. Please log in again.',
+      401:
+        code === 'SESSION_EXPIRED'
+          ? 'Your session has expired. Please log in again.'
+          : isLoginRequest
+            ? 'Invalid email or password.'
+            : 'Authentication is required.',
       403: 'You do not have permission to perform this action.',
       404: 'The requested information could not be found.',
       500: 'Something went wrong on the server. Please try again.',
@@ -108,15 +126,20 @@ async function request<T>(
       fallbackMessages[response.status] ||
       'The request could not be completed. Please try again.';
 
-    const code =
-      typeof errorData?.code === 'string'
-        ? errorData.code
-        : typeof errorData?.error === 'string'
-          ? errorData.error
-        : undefined;
+    if (
+      code === 'SESSION_EXPIRED' &&
+      session?.accessToken &&
+      !isLoginRequest
+    ) {
+      await clearSessionAndNotifyOnce(session.accessToken, async () => {
+        const currentSession = await getSession();
+        if (currentSession?.accessToken !== session.accessToken) {
+          return false;
+        }
 
-    if (code === 'SESSION_EXPIRED') {
-      await clearSession();
+        await clearSession();
+        return true;
+      });
     }
 
     throw new ApiError(message, response.status, code);

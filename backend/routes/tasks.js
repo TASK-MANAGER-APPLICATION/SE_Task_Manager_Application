@@ -59,6 +59,21 @@ router.post("/", async (req, res) => {
   try {
     await client.query("BEGIN");
 
+    if (category_id != null) {
+      const category = await client.query(
+        "SELECT id FROM categories WHERE id = $1 AND user_id = $2",
+        [category_id, req.user.id]
+      );
+
+      if (category.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({
+          code: "CATEGORY_NOT_FOUND",
+          message: "Category not found.",
+        });
+      }
+    }
+
     const result = await client.query(
       `INSERT INTO tasks
         (user_id, title, description, due_at, priority, category_id)
@@ -214,6 +229,21 @@ router.put("/:id", async (req, res) => {
     const newDueAt = due_at === undefined ? oldTask.due_at : due_at;
     const newPriority = priority === undefined ? oldTask.priority : priority;
     const newCategoryId = category_id === undefined ? oldTask.category_id : category_id;
+
+    if (newCategoryId != null) {
+      const category = await client.query(
+        "SELECT id FROM categories WHERE id = $1 AND user_id = $2",
+        [newCategoryId, req.user.id]
+      );
+
+      if (category.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({
+          code: "CATEGORY_NOT_FOUND",
+          message: "Category not found.",
+        });
+      }
+    }
 
     const result = await client.query(
       `UPDATE tasks
