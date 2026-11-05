@@ -678,7 +678,7 @@ export default function HomeScreen() {
         </Text>
 
         <Text style={styles.heading}>
-          Task Manager
+           Dashboard
         </Text>
 
         <Text style={styles.subtitle}>
