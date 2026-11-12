@@ -1,12 +1,12 @@
 # Requirements Traceability Matrix
 
-Version 0.1, Sunday 25 Oct 2026. Test case IDs are provisional and will be mapped to the real STP v1.0 IDs when this table is filled in. Updated every Sunday by Amrita.
+Version 0.2, Thursday 12 Nov 2026. Test case IDs remain provisional pending mapping to the real STP v1.0 IDs. Updated to reflect additional backend security regression coverage.
 
 | Req | Requirement | Component | Planned sprint | Provisional test IDs | Status |
 |---|---|---|---|---|---|
 | FR-01 | User registration | Auth service, register screen | 1 | TC-AUTH-01, TC-AUTH-02, TC-UI-01 | Implemented; automated tests pass |
-| FR-02 | User login | Auth service, auth middleware | 1 | TC-AUTH-05, TC-UI-01 | SRS requirement implemented and tested; issue #20 criteria unavailable |
-| FR-03 | User logout | Auth service | 1 | TC-AUTH-06 | Implemented; automated tests pass |
+| FR-02 | User login | Auth service, auth middleware | 1 | TC-AUTH-05, TC-UI-01 | SRS requirement implemented and tested; missing-email and missing-password login regression cases added; issue #20 criteria unavailable |
+| FR-03 | User logout | Auth service | 1 | TC-AUTH-06 | Implemented; automated tests pass; logout without an authentication token additionally covered by regression testing |
 | FR-04 | Email format validation | Auth service | 1 | TC-AUTH-03 | Implemented; automated tests pass |
 | FR-05 | View profile | Profile service | 2 | TC-AUTH-10 | Not started |
 | FR-06 | Edit profile | Profile service | 2 | TC-AUTH-10 | Not started |
@@ -34,7 +34,7 @@ Version 0.1, Sunday 25 Oct 2026. Test case IDs are provisional and will be mappe
 | FR-28 | Session timeout | Auth middleware | 1 | TC-AUTH-07, TC-UI-02 | Implemented; automated tests pass |
 | NFR-01 | Dashboard under 3 seconds | Dashboard service | 3 | TC-PERF-01 | Not started |
 | NFR-02 | Hashed passwords | Auth service | 1 | TC-SEC-01 | Implemented; automated tests pass |
-| NFR-03 | Authenticated access | Auth middleware | 1 | TC-SEC-02 | SRS requirement implemented and automated tests pass; issues #50/#51 are not formally verified because issue-specific acceptance criteria are unavailable |
+| NFR-03 | Authenticated access | Auth middleware | 1 | TC-SEC-02 | SRS requirement implemented and automated tests pass; unauthenticated task creation, editing, completion, and deletion additionally covered by regression tests; issues #50/#51 are not formally verified because issue-specific acceptance criteria are unavailable |
 | NFR-04 | No cross-user access | Data access layer | 2 | TC-SEC-03, TC-SEC-04 | Implemented; automated tests pass |
 | NFR-05 | No data loss | Task service transactions | 2 | TC-TASK-10 | Implemented; automated tests pass |
 | NFR-06 | Data unaltered except by user | Task service, scheduler | 2 | TC-TASK-11 | Implemented; automated tests pass |
@@ -43,3 +43,15 @@ Version 0.1, Sunday 25 Oct 2026. Test case IDs are provisional and will be mappe
 | NFR-09 | Action timestamps | Audit service | 2 | TC-TASK-09 | SRS requirement implemented and tested; issue #57 criteria unavailable |
 
 Statuses reflect the SRS and available implementation/test evidence; implemented and tested does not mean formally verified against issue-specific criteria. GitHub descriptions and acceptance criteria for issues #20, #50, #51, and #57 were unavailable (issues #50 and #51 also have no comments specifying criteria). For formal verification of #50/#51, the issue owners must provide the acceptance criteria, including the precise protected routes and session/authentication cases to cover and the evidence required to pass. Until then, NFR-03 is only verified against the SRS and current automated tests.
+
+## Additional regression evidence — PR #11 reconciliation
+
+The following additional security regression cases were added to the PR #63 baseline:
+
+- Login rejects missing email and missing password.
+- Logout rejects requests without an authentication token.
+- Task creation, editing, completion, and deletion reject unauthenticated requests.
+- Jest verification: 59 tests passed across 3 test suites; 0 failures.
+- Postman verification: 23 requests, 41 assertions passed; 0 failures, 0 skipped, and 0 errors.
+
+The additional test cases retain provisional IDs until they can be mapped to the approved STP v1.0. Postman results are supplementary API regression evidence and do not independently establish formal requirements verification.
