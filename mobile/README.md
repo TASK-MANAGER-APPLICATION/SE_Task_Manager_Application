@@ -39,14 +39,17 @@ npm start
 
 Set `EXPO_PUBLIC_API_BASE_URL` to the backend origin before starting Expo. The
 older `EXPO_PUBLIC_API_URL` name is also supported as a fallback. If neither
-variable is set, the client uses `http://localhost:3000`.
+variable is set, the client uses `http://10.0.2.2:3000` on Android and
+`http://localhost:3000` on web and iOS.
 
 The correct address depends on where the app runs:
 
 - Expo Web and the iOS simulator can usually use `http://localhost:3000`.
 - The Android emulator should use `http://10.0.2.2:3000`.
 - A physical device should use the computer's LAN IP address, with the device
-  and computer connected to the same network.
+  and computer connected to the same network. Set
+  `EXPO_PUBLIC_API_BASE_URL` to that address; the emulator fallback does not
+  reach a backend running on the host from a physical Android device.
 
 For example, set the value in PowerShell before starting Expo:
 
@@ -106,10 +109,10 @@ npm test -- --runInBand
 The mobile client uses the available authentication and task endpoints. The
 current backend does not provide forgot/reset-password endpoints, category
 management endpoints, profile GET/PUT endpoints, FCM device-token registration,
-or reminder notification delivery. Profile edits are stored locally in the
-mobile session; category assignment accepts an existing category ID. Task
-details are loaded by finding the task in `GET /tasks`, because there is no
-`GET /tasks/:id` endpoint.
+or reminder notification delivery. Dashboard statistics use a separate
+aggregate endpoint, and the task list loads 50 rows at a time with server-side
+filtering and sorting. Profile edits are stored locally in the mobile session;
+category assignment accepts an existing category ID.
 
 An Android SDK, native Android project directory, and EAS build configuration
 are not included in this checkout. An installable APK has not been built.
