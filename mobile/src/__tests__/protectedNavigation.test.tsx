@@ -5,6 +5,7 @@ import { router, usePathname } from 'expo-router';
 import RootLayout from '../app/_layout';
 import { clearSession, getSession, saveSession } from '../services/authStorage';
 import { getTasks } from '../services/api';
+import { notifySessionExpired } from '../services/sessionEvents';
 
 let mockLoadTasksOnMount = false;
 let mockStoredSession: { accessToken: string } | null = null;
@@ -88,6 +89,18 @@ describe('protected navigation', () => {
     expect(screen.queryByText('Protected app screen')).toBeNull();
   });
 
+  test('does not render protected tabs at the root for a signed-out user', async () => {
+    jest.mocked(usePathname).mockReturnValue('/');
+    jest.mocked(getSession).mockResolvedValue(null);
+
+    const screen = await render(<RootLayout />);
+
+    await waitFor(() => {
+      expect(router.replace).toHaveBeenCalledWith('/login');
+    });
+    expect(screen.queryByText('Protected app screen')).toBeNull();
+  });
+
   test('renders a protected screen when the stored session exists', async () => {
     jest.mocked(usePathname).mockReturnValue('/home');
     jest.mocked(getSession).mockResolvedValue({ accessToken: 'valid-session' });
@@ -95,6 +108,38 @@ describe('protected navigation', () => {
     const screen = await render(<RootLayout />);
 
     expect(await screen.findByText('Protected app screen')).toBeTruthy();
+    expect(router.replace).not.toHaveBeenCalled();
+  });
+
+  test('redirects an authenticated root user when the session expires', async () => {
+    jest.mocked(usePathname).mockReturnValue('/');
+    jest.mocked(getSession).mockResolvedValue({ accessToken: 'root-session' });
+
+    const screen = await render(<RootLayout />);
+    expect(await screen.findByText('Protected app screen')).toBeTruthy();
+
+    await act(async () => {
+      notifySessionExpired();
+    });
+
+    await waitFor(() => {
+      expect(router.replace).toHaveBeenCalledWith('/login');
+      expect(screen.queryByText('Protected app screen')).toBeNull();
+    });
+  });
+
+  test('cleans up the root session-expiry subscription on unmount', async () => {
+    jest.mocked(usePathname).mockReturnValue('/');
+    jest.mocked(getSession).mockResolvedValue({ accessToken: 'root-session' });
+
+    const screen = await render(<RootLayout />);
+    expect(await screen.findByText('Protected app screen')).toBeTruthy();
+    await screen.unmount();
+
+    await act(async () => {
+      notifySessionExpired();
+    });
+
     expect(router.replace).not.toHaveBeenCalled();
   });
 

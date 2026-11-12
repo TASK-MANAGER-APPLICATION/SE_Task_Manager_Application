@@ -6,11 +6,11 @@ import {
   ThemeProvider,
   usePathname,
 } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import * as SplashScreen from 'expo-splash-screen';
 
-import { useColorScheme } from 'react-native';
+import { Platform, useColorScheme } from 'react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import AppTabs from '@/components/app-tabs';
@@ -18,6 +18,10 @@ import { getSession } from '@/services/authStorage';
 import { subscribeToSessionExpired } from '@/services/sessionEvents';
 
 SplashScreen.preventAutoHideAsync();
+
+const subscribeToHydration = () => () => {};
+const getHydratedSnapshot = () => true;
+const getServerHydratedSnapshot = () => Platform.OS !== 'web';
 
 type RouteAuthCheck = {
   pathname: string;
@@ -27,16 +31,21 @@ type RouteAuthCheck = {
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const pathname = usePathname();
+  const webHydrated = useSyncExternalStore(
+    subscribeToHydration,
+    getHydratedSnapshot,
+    getServerHydratedSnapshot
+  );
   const [routeAuthCheck, setRouteAuthCheck] =
     useState<RouteAuthCheck | null>(null);
 
-  const isPublicScreen =
-    pathname === '/' ||
-    pathname === '/login' ||
-    pathname === '/register';
+  const themeColorScheme =
+    Platform.OS === 'web' && !webHydrated ? 'light' : colorScheme;
+  const isAuthEntryScreen =
+    pathname === '/login' || pathname === '/register';
 
   useEffect(() => {
-    if (isPublicScreen) {
+    if (isAuthEntryScreen) {
       return;
     }
 
@@ -44,12 +53,12 @@ export default function RootLayout() {
       setRouteAuthCheck({ pathname, authenticated: false });
       router.replace('/login');
     });
-  }, [isPublicScreen, pathname]);
+  }, [isAuthEntryScreen, pathname]);
 
   useEffect(() => {
     let active = true;
 
-    if (isPublicScreen) {
+    if (isAuthEntryScreen) {
       return () => {
         active = false;
       };
@@ -80,7 +89,7 @@ export default function RootLayout() {
     return () => {
       active = false;
     };
-  }, [isPublicScreen, pathname]);
+  }, [isAuthEntryScreen, pathname]);
 
   const isStackScreen =
     pathname === '/login' ||
@@ -89,20 +98,24 @@ export default function RootLayout() {
     pathname === '/create-task' ||
     pathname.startsWith('/task/');
 
+  const routeInitializationComplete =
+    routeAuthCheck?.pathname === pathname;
+  const splashReady =
+    isAuthEntryScreen || routeInitializationComplete;
   const canRenderScreen =
-    isPublicScreen ||
+    isAuthEntryScreen ||
     (routeAuthCheck?.pathname === pathname &&
       routeAuthCheck.authenticated);
 
   return (
     <ThemeProvider
       value={
-        colorScheme === 'dark'
+        themeColorScheme === 'dark'
           ? DarkTheme
           : DefaultTheme
       }
     >
-      <AnimatedSplashOverlay />
+      <AnimatedSplashOverlay ready={splashReady} />
 
       {!canRenderScreen ? null : isStackScreen ? (
         <Stack
