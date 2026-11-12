@@ -15,6 +15,23 @@ export type Session = {
   };
 };
 
+let cachedSession: Session | null = null;
+let hasCachedSession = false;
+let pendingSessionRead: Promise<Session | null> | null = null;
+let sessionRevision = 0;
+let pendingStorageMutation: Promise<void> = Promise.resolve();
+
+function enqueueStorageMutation(
+  mutation: () => Promise<void>
+): Promise<void> {
+  const operation = pendingStorageMutation.then(mutation, mutation);
+  pendingStorageMutation = operation.then(
+    () => undefined,
+    () => undefined
+  );
+  return operation;
+}
+
 function parseSession(value: string | null): Session | null {
   if (!value) {
     return null;
@@ -65,55 +82,127 @@ function parseSession(value: string | null): Session | null {
 }
 
 export async function saveSession(session: Session): Promise<void> {
+  const revision = ++sessionRevision;
+  cachedSession = session;
+  hasCachedSession = true;
+
   if (Platform.OS === 'web') {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(WEB_STORAGE_KEY, JSON.stringify(session));
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(WEB_STORAGE_KEY, JSON.stringify(session));
+      }
+    } catch (error) {
+      if (sessionRevision === revision) {
+        hasCachedSession = false;
+        cachedSession = null;
+      }
+      throw error;
     }
     resetSessionExpired();
     return;
   }
 
-  await Keychain.setGenericPassword(
-    'task-manager-user',
-    JSON.stringify(session),
-    {
-      service: SERVICE_NAME,
+  try {
+    await enqueueStorageMutation(async () => {
+      await Keychain.setGenericPassword(
+        'task-manager-user',
+        JSON.stringify(session),
+        {
+          service: SERVICE_NAME,
+        }
+      );
+    });
+  } catch (error) {
+    if (sessionRevision === revision) {
+      hasCachedSession = false;
+      cachedSession = null;
     }
-  );
+    throw error;
+  }
   resetSessionExpired();
 }
 
 export async function getSession(): Promise<Session | null> {
-  if (Platform.OS === 'web') {
-    try {
-      return typeof localStorage === 'undefined'
-        ? null
-        : parseSession(localStorage.getItem(WEB_STORAGE_KEY));
-    } catch {
-      return null;
-    }
+  if (hasCachedSession) {
+    return cachedSession;
   }
 
-  const credentials = await Keychain.getGenericPassword({
-    service: SERVICE_NAME,
+  if (pendingSessionRead) {
+    return pendingSessionRead;
+  }
+
+  const revision = sessionRevision;
+  const readPromise = (async () => {
+    let session: Session | null;
+
+    if (Platform.OS === 'web') {
+      try {
+        session =
+          typeof localStorage === 'undefined'
+            ? null
+            : parseSession(localStorage.getItem(WEB_STORAGE_KEY));
+      } catch {
+        session = null;
+      }
+    } else {
+      const credentials = await Keychain.getGenericPassword({
+        service: SERVICE_NAME,
+      });
+
+      session = credentials
+        ? parseSession(credentials.password)
+        : null;
+    }
+
+    if (sessionRevision !== revision) {
+      pendingSessionRead = null;
+      return getSession();
+    }
+
+    cachedSession = session;
+    hasCachedSession = true;
+    return session;
+  })().finally(() => {
+    if (pendingSessionRead === readPromise) {
+      pendingSessionRead = null;
+    }
   });
 
-  if (!credentials) {
-    return null;
-  }
-
-  return parseSession(credentials.password);
+  pendingSessionRead = readPromise;
+  return readPromise;
 }
 
 export async function clearSession(): Promise<void> {
+  const revision = ++sessionRevision;
+  cachedSession = null;
+  hasCachedSession = true;
+
   if (Platform.OS === 'web') {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem(WEB_STORAGE_KEY);
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(WEB_STORAGE_KEY);
+      }
+    } catch (error) {
+      if (sessionRevision === revision) {
+        cachedSession = null;
+        hasCachedSession = true;
+      }
+      throw error;
     }
     return;
   }
 
-  await Keychain.resetGenericPassword({
-    service: SERVICE_NAME,
-  });
+  try {
+    await enqueueStorageMutation(async () => {
+      await Keychain.resetGenericPassword({
+        service: SERVICE_NAME,
+      });
+    });
+  } catch (error) {
+    if (sessionRevision === revision) {
+      cachedSession = null;
+      hasCachedSession = true;
+    }
+    throw error;
+  }
 }
