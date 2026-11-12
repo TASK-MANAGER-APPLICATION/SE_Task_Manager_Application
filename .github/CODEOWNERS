@@ -1,15 +1,11 @@
-# Repository-wide review
+# Default ownership
 * @amritap0200
 
-# Backend and database
+# Backend and security
 /backend/ @shrunguuu @AbdullahMahdi29
-/db/ @shrunguuu
 
-# Mobile
-/mobile/ @ShivanandMethre @shrunguu
+# Mobile application
+/mobile/ @ShivanandMethre @shrunguuu
 
-# CI/CD and security
-/.github/ @amritap0200
-
-# Requirements and testing documentation
-/docs/ @amritap0200 @AbdullahMahdi29
+# Repository governance and automation
+/.github/ @amritap0200 @shrunguuu
