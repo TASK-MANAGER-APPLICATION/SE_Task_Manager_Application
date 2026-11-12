@@ -219,6 +219,18 @@ describe("Tasks API", () => {
     expect(response.body.code).toBe("SESSION_EXPIRED");
   });
 
+  test.each([
+    ["creating", () => request(app).post("/tasks").send({ title: "Unauthorized task" })],
+    ["editing", () => request(app).put("/tasks/1").send({ title: "Unauthorized update" })],
+    ["completing", () => request(app).patch("/tasks/1/complete")],
+    ["deleting", () => request(app).delete("/tasks/1")],
+  ])("rejects unauthenticated task %s", async (_operation, makeRequest) => {
+    const response = await makeRequest();
+
+    expect(response.status).toBe(401);
+    expect(response.body.code).toBe("SESSION_EXPIRED");
+  });
+
   test("creates a task for the authenticated user", async () => {
     const response = await request(app)
       .post("/tasks")
