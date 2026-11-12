@@ -13,7 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 
-import { ApiError, completeTask, deleteTask, getTasks, Task, updateTask } from '../../services/api';
+import { ApiError, completeTask, deleteTask, getTask, Task, updateTask } from '../../services/api';
 import { validateTaskForm } from '../../services/taskFormValidation';
 
 function displayDate(value: string | null | undefined) {
@@ -45,13 +45,8 @@ export default function TaskDetailsScreen() {
     setLoading(true);
     setError('');
     try {
-      const result = await getTasks();
-      const found = result.tasks.find((item) => String(item.id) === String(id));
-      if (!found) {
-        setTask(null);
-        setError('This task could not be found.');
-        return;
-      }
+      const result = await getTask(id);
+      const found = result.task;
       setTask(found);
       setTitle(found.title);
       setDescription(found.description ?? '');

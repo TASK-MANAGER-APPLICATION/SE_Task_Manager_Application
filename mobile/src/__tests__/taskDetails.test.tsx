@@ -3,7 +3,7 @@ import { Alert } from 'react-native';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import TaskDetailsScreen from '../app/task/[id]';
-import { completeTask, getTasks, Task, updateTask } from '../services/api';
+import { completeTask, getTask, Task, updateTask } from '../services/api';
 
 const task: Task = {
   id: 12,
@@ -25,7 +25,7 @@ jest.mock('expo-router', () => ({
 jest.mock('../services/authStorage', () => ({ clearSession: jest.fn().mockResolvedValue(undefined) }));
 jest.mock('../services/api', () => ({
   ApiError: class ApiError extends Error { status = 500; code?: string; },
-  getTasks: jest.fn(),
+  getTask: jest.fn(),
   completeTask: jest.fn(),
   deleteTask: jest.fn(),
   updateTask: jest.fn(),
@@ -35,7 +35,7 @@ describe('TaskDetailsScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-    jest.mocked(getTasks).mockResolvedValue({ tasks: [task] });
+    jest.mocked(getTask).mockResolvedValue({ task });
   });
   afterEach(() => jest.restoreAllMocks());
 
@@ -49,7 +49,7 @@ describe('TaskDetailsScreen', () => {
 
   test('shows loading and retryable error states', async () => {
     let rejectTasks: (reason: Error) => void = () => {};
-    jest.mocked(getTasks).mockReturnValue(new Promise((_, reject) => { rejectTasks = reject; }));
+    jest.mocked(getTask).mockReturnValue(new Promise((_, reject) => { rejectTasks = reject; }));
     const screen = await render(<TaskDetailsScreen />);
     expect(screen.getByText('Loading task...')).toBeTruthy();
     rejectTasks(new Error('Server unavailable'));

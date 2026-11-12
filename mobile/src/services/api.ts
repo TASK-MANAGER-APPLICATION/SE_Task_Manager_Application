@@ -1,11 +1,16 @@
 import { clearSession, getSession } from './authStorage';
 import { clearSessionAndNotifyOnce } from './sessionEvents';
+import { Platform } from 'react-native';
 
+const DEFAULT_API_BASE_URL =
+  Platform.OS === 'android'
+    ? 'http://10.0.2.2:3000'
+    : 'http://localhost:3000';
 const API_BASE_URL =
   (
     process.env.EXPO_PUBLIC_API_BASE_URL ||
     process.env.EXPO_PUBLIC_API_URL ||
-    'http://localhost:3000'
+    DEFAULT_API_BASE_URL
   ).replace(/\/+$/, '');
 
 export type User = {
@@ -34,6 +39,20 @@ export type Task = {
   completed_at?: string | null;
 };
 
+export type TaskSummary = {
+  total: number;
+  completed: number;
+  pending: number;
+  overdue: number;
+  statusCounts: Record<'Pending' | 'Completed', number>;
+  priorityCounts: Record<'Low' | 'Medium' | 'High', number>;
+};
+
+export type GetTasksResponse = {
+  tasks: Task[];
+  hasMore?: boolean;
+};
+
 export type ApiErrorResponse = {
   error?: string;
   code?: string;
@@ -56,10 +75,9 @@ async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const session = await getSession();
-
   const headers = new Headers(options.headers);
   const isLoginRequest = path === '/auth/login';
+  const session = isLoginRequest ? null : await getSession();
 
   if (!headers.has('Content-Type') && options.body) {
     headers.set('Content-Type', 'application/json');
@@ -210,11 +228,44 @@ export type GetTasksParams = {
     | 'title'
     | 'status';
   order?: 'asc' | 'desc';
+  limit?: number;
+  offset?: number;
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isTask(value: unknown): value is Task {
+  return (
+    isRecord(value) &&
+    (typeof value.id === 'number' || typeof value.id === 'string') &&
+    typeof value.title === 'string'
+  );
+}
+
+function isTaskSummary(value: unknown): value is TaskSummary {
+  if (!isRecord(value) || !isRecord(value.statusCounts) ||
+      !isRecord(value.priorityCounts)) {
+    return false;
+  }
+
+  return [
+    value.total,
+    value.completed,
+    value.pending,
+    value.overdue,
+    value.statusCounts.Pending,
+    value.statusCounts.Completed,
+    value.priorityCounts.Low,
+    value.priorityCounts.Medium,
+    value.priorityCounts.High,
+  ].every((count) => Number.isInteger(count) && Number(count) >= 0);
+}
 
 export async function getTasks(
   params: GetTasksParams = {}
-): Promise<{ tasks: Task[] }> {
+): Promise<GetTasksResponse> {
   const query = new URLSearchParams();
 
   if (params.status) {
@@ -245,11 +296,68 @@ export async function getTasks(
     query.set('order', params.order);
   }
 
-  const queryString = query.toString();
+  if (params.limit !== undefined) {
+    query.set('limit', String(params.limit));
+  }
 
-  return request<{ tasks: Task[] }>(
+  if (params.offset !== undefined) {
+    query.set('offset', String(params.offset));
+  }
+
+  const queryString = query.toString();
+  const result = await request<unknown>(
     `/tasks${queryString ? `?${queryString}` : ''}`
   );
+
+  if (
+    !isRecord(result) ||
+    !Array.isArray(result.tasks) ||
+    !result.tasks.every(isTask) ||
+    (result.hasMore !== undefined && typeof result.hasMore !== 'boolean')
+  ) {
+    throw new ApiError(
+      'The server returned an invalid task list. Please try again.',
+      502,
+      'INVALID_RESPONSE'
+    );
+  }
+
+  return {
+    tasks: result.tasks,
+    ...(typeof result.hasMore === 'boolean'
+      ? { hasMore: result.hasMore }
+      : {}),
+  };
+}
+
+export async function getTaskSummary(): Promise<TaskSummary> {
+  const result = await request<unknown>('/tasks/summary');
+
+  if (!isRecord(result) || !isTaskSummary(result.summary)) {
+    throw new ApiError(
+      'The server returned invalid dashboard statistics. Please try again.',
+      502,
+      'INVALID_RESPONSE'
+    );
+  }
+
+  return result.summary;
+}
+
+export async function getTask(
+  id: number | string
+): Promise<{ task: Task }> {
+  const result = await request<unknown>(`/tasks/${id}`);
+
+  if (!isRecord(result) || !isTask(result.task)) {
+    throw new ApiError(
+      'The server returned an invalid task. Please try again.',
+      502,
+      'INVALID_RESPONSE'
+    );
+  }
+
+  return { task: result.task };
 }
 
 export type CreateTaskInput = {
