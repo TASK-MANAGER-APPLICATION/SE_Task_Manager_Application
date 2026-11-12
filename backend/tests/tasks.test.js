@@ -334,6 +334,137 @@ describe("Tasks API", () => {
     ).toBe(false);
   });
 
+  test("returns task summaries scoped to the authenticated user", async () => {
+    const beforeA = await request(app)
+      .get("/tasks/summary")
+      .set("Authorization", `Bearer ${tokenA}`);
+    const beforeB = await request(app)
+      .get("/tasks/summary")
+      .set("Authorization", `Bearer ${tokenB}`);
+
+    expect(beforeA.status).toBe(200);
+    expect(beforeA.body.summary).toEqual(expect.objectContaining({
+      total: expect.any(Number),
+      completed: expect.any(Number),
+      pending: expect.any(Number),
+      overdue: expect.any(Number),
+      statusCounts: expect.any(Object),
+      priorityCounts: expect.any(Object),
+    }));
+
+    const overdueTask = await request(app)
+      .post("/tasks")
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({
+        title: "Summary pending overdue task",
+        priority: "High",
+        due_at: "2000-01-01T00:00:00.000Z",
+      });
+    const completedTask = await request(app)
+      .post("/tasks")
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({
+        title: "Summary completed task",
+        priority: "Low",
+        due_at: "2099-01-01T00:00:00.000Z",
+      });
+    expect(overdueTask.status).toBe(201);
+    expect(completedTask.status).toBe(201);
+
+    const completed = await request(app)
+      .patch(`/tasks/${completedTask.body.task.id}/complete`)
+      .set("Authorization", `Bearer ${tokenA}`);
+    expect(completed.status).toBe(200);
+
+    const afterA = await request(app)
+      .get("/tasks/summary")
+      .set("Authorization", `Bearer ${tokenA}`);
+    const afterB = await request(app)
+      .get("/tasks/summary")
+      .set("Authorization", `Bearer ${tokenB}`);
+
+    expect(afterA.body.summary.total).toBe(beforeA.body.summary.total + 2);
+    expect(afterA.body.summary.pending).toBe(beforeA.body.summary.pending + 1);
+    expect(afterA.body.summary.completed).toBe(beforeA.body.summary.completed + 1);
+    expect(afterA.body.summary.overdue).toBe(beforeA.body.summary.overdue + 1);
+    expect(afterA.body.summary.priorityCounts.High)
+      .toBe(beforeA.body.summary.priorityCounts.High + 1);
+    expect(afterA.body.summary.priorityCounts.Low)
+      .toBe(beforeA.body.summary.priorityCounts.Low + 1);
+    expect(afterB.body.summary).toEqual(beforeB.body.summary);
+  });
+
+  test("paginates task results with a stable sort and rejects invalid page sizes", async () => {
+    for (const title of [
+      "Pagination test alpha",
+      "Pagination test beta",
+      "Pagination test gamma",
+    ]) {
+      const created = await request(app)
+        .post("/tasks")
+        .set("Authorization", `Bearer ${tokenA}`)
+        .send({ title });
+      expect(created.status).toBe(201);
+    }
+
+    const allTasks = await request(app)
+      .get("/tasks")
+      .query({ sortBy: "title", order: "asc" })
+      .set("Authorization", `Bearer ${tokenA}`);
+    const firstPage = await request(app)
+      .get("/tasks")
+      .query({ sortBy: "title", order: "asc", limit: 2, offset: 0 })
+      .set("Authorization", `Bearer ${tokenA}`);
+    const secondPage = await request(app)
+      .get("/tasks")
+      .query({ sortBy: "title", order: "asc", limit: 2, offset: 2 })
+      .set("Authorization", `Bearer ${tokenA}`);
+
+    expect(firstPage.status).toBe(200);
+    expect(firstPage.body.tasks).toHaveLength(2);
+    expect(firstPage.body.hasMore).toBe(allTasks.body.tasks.length > 2);
+    expect(firstPage.body.tasks.map((task) => task.id)).toEqual(
+      allTasks.body.tasks.slice(0, 2).map((task) => task.id)
+    );
+    expect(secondPage.body.tasks.map((task) => task.id)).toEqual(
+      allTasks.body.tasks.slice(2, 4).map((task) => task.id)
+    );
+
+    const invalidLimit = await request(app)
+      .get("/tasks")
+      .query({ limit: 101 })
+      .set("Authorization", `Bearer ${tokenA}`);
+    const invalidOffset = await request(app)
+      .get("/tasks")
+      .query({ offset: 1000001 })
+      .set("Authorization", `Bearer ${tokenA}`);
+
+    expect(invalidLimit.status).toBe(400);
+    expect(invalidLimit.body.code).toBe("INVALID_LIMIT");
+    expect(invalidOffset.status).toBe(400);
+    expect(invalidOffset.body.code).toBe("INVALID_OFFSET");
+  });
+
+  test("loads a single task without listing the user's full task collection", async () => {
+    const response = await request(app)
+      .get(`/tasks/${taskId}`)
+      .set("Authorization", `Bearer ${tokenA}`);
+
+    expect(response.status).toBe(200);
+    expect(String(response.body.task.id)).toBe(String(taskId));
+    expect(response.body.task.title).toBe("Test task");
+
+    const foreignTask = await request(app)
+      .post("/tasks")
+      .set("Authorization", `Bearer ${tokenB}`)
+      .send({ title: "Private detail task" });
+    const forbiddenDetail = await request(app)
+      .get(`/tasks/${foreignTask.body.task.id}`)
+      .set("Authorization", `Bearer ${tokenA}`);
+
+    expect(forbiddenDetail.status).toBe(404);
+  });
+
   test("prevents cross-user task access and preserves the owner's data and audit events", async () => {
     const created = await request(app)
       .post("/tasks")

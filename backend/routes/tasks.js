@@ -8,6 +8,7 @@ const router = express.Router();
 router.use(authMiddleware);
 
 const validPriorities = ["Low", "Medium", "High"];
+const MAX_PAGE_SIZE = 100;
 
 function validDueDate(value) {
   return value == null || (
@@ -16,6 +17,56 @@ function validDueDate(value) {
     Number.isFinite(Date.parse(value))
   );
 }
+
+router.get("/summary", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE status = 'Completed')::int AS completed,
+              COUNT(*) FILTER (WHERE status = 'Pending')::int AS pending,
+              COUNT(*) FILTER (
+                WHERE status = 'Pending' AND due_at < NOW()
+              )::int AS overdue,
+              COUNT(*) FILTER (
+                WHERE priority = 'Low'
+              )::int AS priority_low,
+              COUNT(*) FILTER (
+                WHERE priority = 'Medium'
+              )::int AS priority_medium,
+              COUNT(*) FILTER (
+                WHERE priority = 'High'
+              )::int AS priority_high
+       FROM tasks
+       WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const row = result.rows[0];
+
+    return res.status(200).json({
+      summary: {
+        total: row.total,
+        completed: row.completed,
+        pending: row.pending,
+        overdue: row.overdue,
+        statusCounts: {
+          Pending: row.pending,
+          Completed: row.completed,
+        },
+        priorityCounts: {
+          Low: row.priority_low,
+          Medium: row.priority_medium,
+          High: row.priority_high,
+        },
+      },
+    });
+  } catch (err) {
+    console.error("Task summary failed:", err.message);
+    return res.status(500).json({
+      code: "INTERNAL_ERROR",
+      message: "Unable to retrieve dashboard statistics.",
+    });
+  }
+});
 
 // Create a task
 router.post("/", async (req, res) => {
@@ -117,6 +168,9 @@ router.get("/", async (req, res) => {
     status, priority, categoryId, dueBefore, dueAfter,
     sortBy = "created_at", order = "desc",
   } = req.query;
+  const { limit: limitParam, offset: offsetParam } = req.query;
+  let limit = 50;
+  let offset = 0;
 
   const allowedSortColumns = {
     created_at: "created_at",
@@ -151,6 +205,26 @@ router.get("/", async (req, res) => {
     return res.status(400).json({ code: "INVALID_DUE_DATE", message: "Invalid due-date filter." });
   }
 
+  if (limitParam !== undefined) {
+    limit = Number(limitParam);
+    if (!Number.isInteger(limit) || limit < 1 || limit > MAX_PAGE_SIZE) {
+      return res.status(400).json({
+        code: "INVALID_LIMIT",
+        message: `Limit must be an integer between 1 and ${MAX_PAGE_SIZE}.`,
+      });
+    }
+  }
+
+  if (offsetParam !== undefined) {
+    offset = Number(offsetParam);
+    if (!Number.isSafeInteger(offset) || offset < 0 || offset > 1000000) {
+      return res.status(400).json({
+        code: "INVALID_OFFSET",
+        message: "Offset must be an integer between 0 and 1000000.",
+      });
+    }
+  }
+
   const conditions = ["user_id = $1"];
   const values = [req.user.id];
 
@@ -164,21 +238,62 @@ router.get("/", async (req, res) => {
   if (categoryId !== undefined) addFilter("category_id", Number(categoryId));
   if (dueBefore) addFilter("due_at", dueBefore, "<");
   if (dueAfter) addFilter("due_at", dueAfter, ">");
+  values.push(limit + 1);
+  const limitPlaceholder = `$${values.length}`;
+  values.push(offset);
+  const paginationSql = `LIMIT ${limitPlaceholder} OFFSET $${values.length}`;
 
   try {
     const result = await pool.query(
       `SELECT * FROM tasks
        WHERE ${conditions.join(" AND ")}
-       ORDER BY ${allowedSortColumns[sortBy]} ${String(order).toUpperCase()}`,
+       ORDER BY ${allowedSortColumns[sortBy]} ${String(order).toUpperCase()},
+                id DESC NULLS LAST
+       ${paginationSql}`,
       values
     );
 
-    return res.status(200).json({ tasks: result.rows });
+    const hasMore = result.rows.length > limit;
+    return res.status(200).json({
+      tasks: result.rows.slice(0, limit),
+      hasMore,
+    });
   } catch (err) {
     console.error("List tasks failed:", err.message);
     return res.status(500).json({
       code: "INTERNAL_ERROR",
       message: "Unable to retrieve tasks.",
+    });
+  }
+});
+
+router.get("/:id", async (req, res) => {
+  if (!/^[1-9]\d*$/.test(req.params.id)) {
+    return res.status(400).json({
+      code: "INVALID_TASK_ID",
+      message: "Invalid task ID.",
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      "SELECT * FROM tasks WHERE id = $1 AND user_id = $2",
+      [req.params.id, req.user.id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        code: "TASK_NOT_FOUND",
+        message: "Task not found.",
+      });
+    }
+
+    return res.status(200).json({ task: result.rows[0] });
+  } catch (err) {
+    console.error("Get task failed:", err.message);
+    return res.status(500).json({
+      code: "INTERNAL_ERROR",
+      message: "Unable to retrieve task.",
     });
   }
 });
