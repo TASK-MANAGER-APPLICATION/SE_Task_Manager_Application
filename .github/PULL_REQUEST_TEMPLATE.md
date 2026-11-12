@@ -1,16 +1,42 @@
-## What changed
+## Summary
 
-## Linked issue and requirements
+Describe what this PR changes.
 
-Closes #
-FR/NFR IDs:
+## Requirements
 
-## How it was tested
+- [ ] FR/NFR: 
+- [ ] Linked issue: #
 
-## Checklist
+## Implementation
 
-- [ ] Tests added or updated where applicable
+Describe the changes made.
+
+## Testing
+
+- [ ] Unit tests passed
+- [ ] Integration tests passed
+- [ ] Mobile tests passed
+- [ ] Manual testing completed, if applicable
+- [ ] No tests were skipped unintentionally
+
+Test command(s):
+
+## Security
+
+- [ ] No secrets committed
+- [ ] Input validation considered
+- [ ] Authentication and authorization considered
+- [ ] No cross-user data leakage introduced
+
+## Documentation
+
+- [ ] RTM updated
+- [ ] API/OpenAPI updated, if applicable
+- [ ] README updated, if applicable
+
+## Review checklist
+
 - [ ] CI is green
-- [ ] OpenAPI file updated for any endpoint change
-- [ ] RTM line updated
-- [ ] No secrets or .env files included
+- [ ] One independent review received
+- [ ] All review conversations resolved
+- [ ] Acceptance criteria satisfied
