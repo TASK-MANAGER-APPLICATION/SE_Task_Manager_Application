@@ -25,11 +25,13 @@ export default function ChangePasswordScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [errors, setErrors] = useState<ChangePasswordErrors>({});
   const [formError, setFormError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
   const [saving, setSaving] = useState(false);
 
   async function handleSubmit() {
     if (saving) return;
     setFormError('');
+    setSuccessMessage('');
     const validationErrors = validateChangePasswordForm(
       currentPassword,
       newPassword,
@@ -41,6 +43,11 @@ export default function ChangePasswordScreen() {
     setSaving(true);
     try {
       await changePassword(currentPassword, newPassword);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setErrors({});
+      setSuccessMessage('Password changed successfully!');
       await clearSession();
       Alert.alert(
         'Password changed',
@@ -112,6 +119,7 @@ export default function ChangePasswordScreen() {
         <Text style={styles.title}>Change Password</Text>
         <Text style={styles.subtitle}>Choose a strong password for your account.</Text>
         {formError ? <Text accessibilityRole="alert" style={styles.error}>{formError}</Text> : null}
+        {successMessage ? <Text style={styles.success}>{successMessage}</Text> : null}
         {renderPasswordField('Current Password', 'Enter current password', currentPassword, setCurrentPassword, 'currentPassword')}
         {renderPasswordField('New Password', 'Enter new password', newPassword, setNewPassword, 'newPassword')}
         {renderPasswordField('Confirm New Password', 'Re-enter new password', confirmPassword, setConfirmPassword, 'confirmPassword')}
@@ -140,6 +148,7 @@ const styles = StyleSheet.create({
   input: { minHeight: 48, backgroundColor: '#FFFFFF', borderColor: '#DDE1ED', borderWidth: 1, borderRadius: 9, paddingHorizontal: 13, fontSize: 15, color: '#20243A' },
   inputError: { borderColor: '#CC3333' },
   error: { color: '#B42318', fontSize: 13, marginTop: 6 },
+  success: { color: '#237A4B', fontSize: 13, marginTop: 6 },
   button: { minHeight: 48, marginTop: 24, backgroundColor: '#5968D8', borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
   disabled: { opacity: 0.6 },
   buttonText: { color: '#FFFFFF', fontWeight: '700', fontSize: 15 },
