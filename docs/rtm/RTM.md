@@ -55,3 +55,16 @@ The following additional security regression cases were added to the PR #63 base
 - Postman verification: 23 requests, 41 assertions passed; 0 failures, 0 skipped, and 0 errors.
 
 The additional test cases retain provisional IDs until they can be mapped to the approved STP v1.0. Postman results are supplementary API regression evidence and do not independently establish formal requirements verification.
+
+## Project board testing coverage - additional review
+
+The following tasks were identified in the GitHub Projects Sprint Board under the Testing column:
+
+| GitHub issue | Task | Existing implementation and test evidence | Assessment |
+|---|---|---|---|
+| #22 | Email format validation | Backend registration tests reject missing, malformed, and non-string email values. Mobile validation tests cover valid email addresses, malformed addresses, and addresses without a domain. | Existing coverage identified; issue-specific acceptance criteria unavailable. |
+| #25 | Password strength enforcement | Backend registration tests reject passwords shorter than 8 characters and passwords missing uppercase, lowercase, numeric, or special characters. Mobile validation tests cover the same strength requirements and registration-form errors. | Existing coverage identified; issue-specific acceptance criteria unavailable. |
+
+Both tasks have existing implementation and automated regression coverage in the PR #63 baseline. No duplicate tests were added during reconciliation.
+
+The GitHub issues did not contain descriptions or acceptance criteria when reviewed. Therefore, the evidence above demonstrates existing test coverage but does not establish formal verification against issue-specific acceptance criteria. Confirmation from the issue owners is required before marking either issue formally verified.
