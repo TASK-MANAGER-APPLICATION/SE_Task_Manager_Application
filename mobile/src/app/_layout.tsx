@@ -100,12 +100,15 @@ export default function RootLayout() {
 
   const routeInitializationComplete =
     routeAuthCheck?.pathname === pathname;
+  const hasAuthenticatedSession =
+    routeAuthCheck?.authenticated === true;
   const splashReady =
-    isAuthEntryScreen || routeInitializationComplete;
+    isAuthEntryScreen ||
+    routeInitializationComplete ||
+    hasAuthenticatedSession;
   const canRenderScreen =
     isAuthEntryScreen ||
-    (routeAuthCheck?.pathname === pathname &&
-      routeAuthCheck.authenticated);
+    hasAuthenticatedSession;
 
   return (
     <ThemeProvider

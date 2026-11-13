@@ -9,6 +9,8 @@ import { notifySessionExpired } from '../services/sessionEvents';
 
 let mockLoadTasksOnMount = false;
 let mockStoredSession: { accessToken: string } | null = null;
+let mockTabMountCount = 0;
+let mockTabUnmountCount = 0;
 
 jest.mock('expo-router', () => ({
   DarkTheme: {},
@@ -27,28 +29,34 @@ jest.mock('@/components/animated-icon', () => ({
   AnimatedSplashOverlay: () => null,
 }));
 
-jest.mock('@/components/app-tabs', () => ({
-  __esModule: true,
-  default: () => {
-    const React = jest.requireActual<typeof import('react')>('react');
-    const { Text } = jest.requireActual<typeof import('react-native')>('react-native');
-    const { getTasks } = jest.requireActual<typeof import('../services/api')>(
-      '../services/api'
-    );
+jest.mock('@/components/app-tabs', () => {
+  const React = jest.requireActual<typeof import('react')>('react');
+  const { Text } = jest.requireActual<typeof import('react-native')>('react-native');
+  const { getTasks } = jest.requireActual<typeof import('../services/api')>(
+    '../services/api'
+  );
 
-    function ProtectedTabs() {
-      React.useEffect(() => {
-        if (mockLoadTasksOnMount) {
-          void getTasks().catch(() => undefined);
-        }
-      }, []);
+  function ProtectedTabs() {
+    React.useEffect(() => {
+      mockTabMountCount += 1;
 
-      return <Text>Protected app screen</Text>;
-    }
+      if (mockLoadTasksOnMount) {
+        void getTasks().catch(() => undefined);
+      }
 
-    return <ProtectedTabs />;
-  },
-}));
+      return () => {
+        mockTabUnmountCount += 1;
+      };
+    }, []);
+
+    return <Text>Protected app screen</Text>;
+  }
+
+  return {
+    __esModule: true,
+    default: () => <ProtectedTabs />,
+  };
+});
 
 jest.mock('../services/authStorage', () => ({
   getSession: jest.fn(async () => mockStoredSession),
@@ -65,6 +73,8 @@ describe('protected navigation', () => {
     jest.clearAllMocks();
     mockLoadTasksOnMount = false;
     mockStoredSession = null;
+    mockTabMountCount = 0;
+    mockTabUnmountCount = 0;
     jest.mocked(getSession).mockImplementation(async () => mockStoredSession);
     jest.mocked(saveSession).mockImplementation(async (session) => {
       mockStoredSession = session;
@@ -109,6 +119,26 @@ describe('protected navigation', () => {
 
     expect(await screen.findByText('Protected app screen')).toBeTruthy();
     expect(router.replace).not.toHaveBeenCalled();
+  });
+
+  test('keeps the authenticated tab navigator mounted while changing tab routes', async () => {
+    jest.mocked(usePathname).mockReturnValue('/home');
+    jest.mocked(getSession).mockResolvedValue({ accessToken: 'valid-session' });
+
+    const screen = await render(<RootLayout />);
+    expect(await screen.findByText('Protected app screen')).toBeTruthy();
+
+    for (const [index, pathname] of ['/explore', '/profile', '/home'].entries()) {
+      jest.mocked(usePathname).mockReturnValue(pathname);
+      await screen.rerender(<RootLayout />);
+
+      await waitFor(() => {
+        expect(getSession).toHaveBeenCalledTimes(index + 2);
+      });
+      expect(screen.getByText('Protected app screen')).toBeTruthy();
+      expect(mockTabMountCount).toBe(1);
+      expect(mockTabUnmountCount).toBe(0);
+    }
   });
 
   test('redirects an authenticated root user when the session expires', async () => {
