@@ -1,11 +1,26 @@
 import { clearSession, getSession } from './authStorage';
+import { clearSessionAndNotifyOnce } from './sessionEvents';
+import { Platform } from 'react-native';
 
+const DEFAULT_API_BASE_URL =
+  Platform.OS === 'android'
+    ? 'http://10.0.2.2:3000'
+    : 'http://localhost:3000';
 const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+  (
+    process.env.EXPO_PUBLIC_API_BASE_URL ||
+    process.env.EXPO_PUBLIC_API_URL ||
+    DEFAULT_API_BASE_URL
+  ).replace(/\/+$/, '');
 
 export type User = {
   id: number | string;
   email: string;
+  name: string;
+};
+
+export type Category = {
+  id: number | string;
   name: string;
 };
 
@@ -27,6 +42,20 @@ export type Task = {
   created_at?: string;
   updated_at?: string;
   completed_at?: string | null;
+};
+
+export type TaskSummary = {
+  total: number;
+  completed: number;
+  pending: number;
+  overdue: number;
+  statusCounts: Record<'Pending' | 'Completed', number>;
+  priorityCounts: Record<'Low' | 'Medium' | 'High', number>;
+};
+
+export type GetTasksResponse = {
+  tasks: Task[];
+  hasMore?: boolean;
 };
 
 export type ApiErrorResponse = {
@@ -51,15 +80,15 @@ async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const session = await getSession();
-
   const headers = new Headers(options.headers);
+  const isLoginRequest = path === '/auth/login';
+  const session = isLoginRequest ? null : await getSession();
 
   if (!headers.has('Content-Type') && options.body) {
     headers.set('Content-Type', 'application/json');
   }
 
-  if (session?.accessToken) {
+  if (session?.accessToken && !isLoginRequest) {
     headers.set('Authorization', `Bearer ${session.accessToken}`);
   }
 
@@ -93,9 +122,21 @@ async function request<T>(
   if (!response.ok) {
     const errorData = data as ApiErrorResponse | null;
 
+    const code =
+      typeof errorData?.code === 'string'
+        ? errorData.code
+        : typeof errorData?.error === 'string'
+          ? errorData.error
+          : undefined;
+
     const fallbackMessages: Record<number, string> = {
       400: 'Please check the information you entered and try again.',
-      401: 'Your session has expired. Please log in again.',
+      401:
+        code === 'SESSION_EXPIRED'
+          ? 'Your session has expired. Please log in again.'
+          : isLoginRequest
+            ? 'Invalid email or password.'
+            : 'Authentication is required.',
       403: 'You do not have permission to perform this action.',
       404: 'The requested information could not be found.',
       500: 'Something went wrong on the server. Please try again.',
@@ -108,15 +149,20 @@ async function request<T>(
       fallbackMessages[response.status] ||
       'The request could not be completed. Please try again.';
 
-    const code =
-      typeof errorData?.code === 'string'
-        ? errorData.code
-        : typeof errorData?.error === 'string'
-          ? errorData.error
-        : undefined;
+    if (
+      code === 'SESSION_EXPIRED' &&
+      session?.accessToken &&
+      !isLoginRequest
+    ) {
+      await clearSessionAndNotifyOnce(session.accessToken, async () => {
+        const currentSession = await getSession();
+        if (currentSession?.accessToken !== session.accessToken) {
+          return false;
+        }
 
-    if (code === 'SESSION_EXPIRED') {
-      await clearSession();
+        await clearSession();
+        return true;
+      });
     }
 
     throw new ApiError(message, response.status, code);
@@ -187,11 +233,52 @@ export type GetTasksParams = {
     | 'title'
     | 'status';
   order?: 'asc' | 'desc';
+  limit?: number;
+  offset?: number;
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isTask(value: unknown): value is Task {
+  return (
+    isRecord(value) &&
+    (typeof value.id === 'number' || typeof value.id === 'string') &&
+    typeof value.title === 'string'
+  );
+}
+
+function isCategory(value: unknown): value is Category {
+  return (
+    isRecord(value) &&
+    (typeof value.id === 'number' || typeof value.id === 'string') &&
+    typeof value.name === 'string'
+  );
+}
+
+function isTaskSummary(value: unknown): value is TaskSummary {
+  if (!isRecord(value) || !isRecord(value.statusCounts) ||
+      !isRecord(value.priorityCounts)) {
+    return false;
+  }
+
+  return [
+    value.total,
+    value.completed,
+    value.pending,
+    value.overdue,
+    value.statusCounts.Pending,
+    value.statusCounts.Completed,
+    value.priorityCounts.Low,
+    value.priorityCounts.Medium,
+    value.priorityCounts.High,
+  ].every((count) => Number.isInteger(count) && Number(count) >= 0);
+}
 
 export async function getTasks(
   params: GetTasksParams = {}
-): Promise<{ tasks: Task[] }> {
+): Promise<GetTasksResponse> {
   const query = new URLSearchParams();
 
   if (params.status) {
@@ -222,11 +309,68 @@ export async function getTasks(
     query.set('order', params.order);
   }
 
-  const queryString = query.toString();
+  if (params.limit !== undefined) {
+    query.set('limit', String(params.limit));
+  }
 
-  return request<{ tasks: Task[] }>(
+  if (params.offset !== undefined) {
+    query.set('offset', String(params.offset));
+  }
+
+  const queryString = query.toString();
+  const result = await request<unknown>(
     `/tasks${queryString ? `?${queryString}` : ''}`
   );
+
+  if (
+    !isRecord(result) ||
+    !Array.isArray(result.tasks) ||
+    !result.tasks.every(isTask) ||
+    (result.hasMore !== undefined && typeof result.hasMore !== 'boolean')
+  ) {
+    throw new ApiError(
+      'The server returned an invalid task list. Please try again.',
+      502,
+      'INVALID_RESPONSE'
+    );
+  }
+
+  return {
+    tasks: result.tasks,
+    ...(typeof result.hasMore === 'boolean'
+      ? { hasMore: result.hasMore }
+      : {}),
+  };
+}
+
+export async function getTaskSummary(): Promise<TaskSummary> {
+  const result = await request<unknown>('/tasks/summary');
+
+  if (!isRecord(result) || !isTaskSummary(result.summary)) {
+    throw new ApiError(
+      'The server returned invalid dashboard statistics. Please try again.',
+      502,
+      'INVALID_RESPONSE'
+    );
+  }
+
+  return result.summary;
+}
+
+export async function getTask(
+  id: number | string
+): Promise<{ task: Task }> {
+  const result = await request<unknown>(`/tasks/${id}`);
+
+  if (!isRecord(result) || !isTask(result.task)) {
+    throw new ApiError(
+      'The server returned an invalid task. Please try again.',
+      502,
+      'INVALID_RESPONSE'
+    );
+  }
+
+  return { task: result.task };
 }
 
 export type CreateTaskInput = {
@@ -277,6 +421,71 @@ export async function deleteTask(
   id: number | string
 ): Promise<void> {
   await request<void>(`/tasks/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function getCategories(): Promise<{ categories: Category[] }> {
+  const result = await request<unknown>('/categories');
+
+  if (
+    !isRecord(result) ||
+    !Array.isArray(result.categories) ||
+    !result.categories.every(isCategory)
+  ) {
+    throw new ApiError(
+      'The server returned an invalid category list. Please try again.',
+      502,
+      'INVALID_RESPONSE'
+    );
+  }
+
+  return { categories: result.categories };
+}
+
+export async function createCategory(
+  name: string
+): Promise<{ category: Category }> {
+  const result = await request<unknown>('/categories', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
+
+  if (!isRecord(result) || !isCategory(result.category)) {
+    throw new ApiError(
+      'The server returned an invalid category. Please try again.',
+      502,
+      'INVALID_RESPONSE'
+    );
+  }
+
+  return { category: result.category };
+}
+
+export async function renameCategory(
+  id: number | string,
+  name: string
+): Promise<{ category: Category }> {
+  const result = await request<unknown>(`/categories/${encodeURIComponent(String(id))}`, {
+    method: 'PUT',
+    body: JSON.stringify({ name }),
+  });
+
+  if (!isRecord(result) || !isCategory(result.category)) {
+    throw new ApiError(
+      'The server returned an invalid category. Please try again.',
+      502,
+      'INVALID_RESPONSE'
+    );
+  }
+
+  return { category: result.category };
+}
+
+export async function deleteCategory(
+  id: number | string
+): Promise<void> {
+  await request<void>(`/categories/${encodeURIComponent(String(id))}`, {
     method: 'DELETE',
   });
 }

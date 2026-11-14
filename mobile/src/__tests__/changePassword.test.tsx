@@ -1,6 +1,6 @@
 import React from 'react';
 import { Alert } from 'react-native';
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import ChangePasswordScreen from '../app/change-password';
 import { ApiError, changePassword } from '../services/api';
@@ -64,14 +64,29 @@ describe('ChangePasswordScreen', () => {
     expect(changePassword).not.toHaveBeenCalled();
   });
 
-  test('submits current and new passwords, clears session, and reports success', async () => {
-    jest.mocked(changePassword).mockResolvedValue(undefined);
+  test('shows success and clears password fields only after the API succeeds', async () => {
+    let resolveChangePassword!: () => void;
+    jest.mocked(changePassword).mockReturnValue(new Promise((resolve) => {
+      resolveChangePassword = resolve;
+    }));
     const screen = await render(<ChangePasswordScreen />);
     await fireEvent.changeText(screen.getByLabelText('Current Password'), 'Current123!');
     await fireEvent.changeText(screen.getByLabelText('New Password'), strongPassword);
     await fireEvent.changeText(screen.getByLabelText('Confirm New Password'), strongPassword);
-    await fireEvent.press(screen.getByText('Update Password'));
+    const submission = fireEvent.press(screen.getByText('Update Password'));
     await waitFor(() => expect(changePassword).toHaveBeenCalledWith('Current123!', strongPassword));
+    expect(screen.queryByText('Password changed successfully!')).toBeNull();
+    expect(screen.getByLabelText('Current Password').props.value).toBe('Current123!');
+
+    await act(async () => {
+      resolveChangePassword();
+      await submission;
+    });
+
+    expect(await screen.findByText('Password changed successfully!')).toBeTruthy();
+    for (const label of ['Current Password', 'New Password', 'Confirm New Password']) {
+      expect(screen.getByLabelText(label).props.value).toBe('');
+    }
     await waitFor(() => expect(clearSession).toHaveBeenCalled());
     expect(Alert.alert).toHaveBeenCalledWith('Password changed', expect.any(String), expect.any(Array));
   });
@@ -84,21 +99,8 @@ describe('ChangePasswordScreen', () => {
     await fireEvent.changeText(screen.getByLabelText('Confirm New Password'), strongPassword);
     await fireEvent.press(screen.getByText('Update Password'));
     expect(await screen.findByText('Current password is incorrect.')).toBeTruthy();
+    expect(screen.queryByText('Password changed successfully!')).toBeNull();
     expect(clearSession).not.toHaveBeenCalled();
-  });
-
-  test.each([
-    new ApiError('Session expired.', 401, 'SESSION_EXPIRED'),
-    new ApiError('Unauthorized.', 401, 'UNAUTHORIZED'),
-  ])('clears session on expired or unauthorized response', async (apiError) => {
-    jest.mocked(changePassword).mockRejectedValue(apiError);
-    const screen = await render(<ChangePasswordScreen />);
-    await fireEvent.changeText(screen.getByLabelText('Current Password'), 'Current123!');
-    await fireEvent.changeText(screen.getByLabelText('New Password'), strongPassword);
-    await fireEvent.changeText(screen.getByLabelText('Confirm New Password'), strongPassword);
-    await fireEvent.press(screen.getByText('Update Password'));
-    await waitFor(() => expect(clearSession).toHaveBeenCalled());
-    expect(Alert.alert).toHaveBeenCalledWith('Session expired', expect.any(String), expect.any(Array));
   });
 
   test('shows weak-password API errors', async () => {
@@ -119,5 +121,6 @@ describe('ChangePasswordScreen', () => {
     await fireEvent.changeText(screen.getByLabelText('Confirm New Password'), strongPassword);
     await fireEvent.press(screen.getByText('Update Password'));
     expect(await screen.findByText('Network failed.')).toBeTruthy();
+    expect(screen.queryByText('Password changed successfully!')).toBeNull();
   });
 });

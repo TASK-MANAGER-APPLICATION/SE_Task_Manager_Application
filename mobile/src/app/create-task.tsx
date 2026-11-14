@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -11,8 +11,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 
-import { ApiError, createTask } from '../services/api';
-import { clearSession } from '../services/authStorage';
+import { ApiError, Category, createTask, getCategories } from '../services/api';
+import { CategoryPicker } from '../components/category-picker';
 import { TaskFormErrors, TaskFormValues, toCreateTaskInput, validateTaskForm } from '../services/taskFormValidation';
 
 const initialValues: TaskFormValues = {
@@ -24,6 +24,36 @@ export default function CreateTaskScreen({ onCreated }: { onCreated?: () => void
   const [errors, setErrors] = useState<TaskFormErrors>({});
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [categoriesError, setCategoriesError] = useState('');
+
+  const loadCategories = useCallback(async () => {
+    setCategoriesLoading(true);
+    setCategoriesError('');
+    try {
+      const result = await getCategories();
+      setCategories(result.categories);
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'SESSION_EXPIRED') {
+        return;
+      }
+      setCategoriesError(
+        error instanceof ApiError
+          ? error.message
+          : 'Unable to load categories. Please try again.'
+      );
+    } finally {
+      setCategoriesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void loadCategories();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [loadCategories]);
 
   function setField(field: keyof TaskFormValues, value: string) {
     setValues((current) => ({ ...current, [field]: value }));
@@ -44,9 +74,8 @@ export default function CreateTaskScreen({ onCreated }: { onCreated?: () => void
       if (onCreated) onCreated();
       else router.replace('/home');
     } catch (error) {
-      if (error instanceof ApiError && (error.code === 'SESSION_EXPIRED' || error.status === 401)) {
-        await clearSession();
-        router.replace('/login');
+      if (error instanceof ApiError && error.code === 'SESSION_EXPIRED') {
+        return;
       } else if (error instanceof ApiError && error.code === 'INVALID_TITLE') {
         setErrors({ title: error.message });
       } else if (error instanceof ApiError && error.code === 'INVALID_DUE_DATE') {
@@ -119,8 +148,30 @@ export default function CreateTaskScreen({ onCreated }: { onCreated?: () => void
             </Pressable>
           ))}
         </View>
-        {field('Category ID', 'Optional positive category ID', values.category_id, 'category_id', { keyboardType: 'numeric' })}
-        <Text style={styles.note}>Category management is not available in the current API. Enter an existing category ID if you have one.</Text>
+        <Text style={styles.label}>Category</Text>
+        {categoriesLoading ? (
+          <ActivityIndicator color="#5968D8" />
+        ) : (
+          <CategoryPicker
+            categories={categories}
+            categoryId={values.category_id}
+            onChange={(categoryId) => setField('category_id', categoryId)}
+            disabled={saving}
+          />
+        )}
+        {errors.category_id ? (
+          <Text accessibilityRole="alert" style={styles.error}>{errors.category_id}</Text>
+        ) : null}
+        {categoriesError ? (
+          <View>
+            <Text accessibilityRole="alert" style={styles.error}>{categoriesError}</Text>
+            <Pressable accessibilityRole="button" onPress={() => void loadCategories()}>
+              <Text style={styles.retryText}>Retry categories</Text>
+            </Pressable>
+          </View>
+        ) : categories.length === 0 && !categoriesLoading ? (
+          <Text style={styles.note}>No categories yet. You can manage them from Profile.</Text>
+        ) : null}
         <Pressable accessibilityRole="button" accessibilityLabel="Create task submit" style={[styles.submit, saving && styles.disabled]} onPress={handleCreate} disabled={saving}>
           {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.submitText}>Create Task</Text>}
         </Pressable>
@@ -149,6 +200,7 @@ const styles = StyleSheet.create({
   optionText: { color: '#414966', fontWeight: '600' },
   optionTextSelected: { color: '#FFFFFF' },
   note: { color: '#777D91', fontSize: 12, marginTop: 5, lineHeight: 18 },
+  retryText: { color: '#5968D8', fontWeight: '700', marginTop: 7 },
   submit: { minHeight: 50, marginTop: 24, backgroundColor: '#5968D8', borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
   disabled: { opacity: 0.6 },
   submitText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },

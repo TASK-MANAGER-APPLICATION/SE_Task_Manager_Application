@@ -3,7 +3,7 @@ import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import ProfileScreen from '../app/profile';
 import { getSession, saveSession } from '../services/authStorage';
-import { ApiError, logout } from '../services/api';
+import { ApiError, getCategories, logout } from '../services/api';
 
 
 jest.mock('expo-router', () => ({
@@ -22,6 +22,10 @@ jest.mock('../services/api', () => ({
     code?: string;
     constructor(message: string, status: number, code?: string) { super(message); this.status = status; this.code = code; }
   },
+  getCategories: jest.fn(),
+  createCategory: jest.fn(),
+  renameCategory: jest.fn(),
+  deleteCategory: jest.fn(),
   logout: jest.fn(),
 }));
 
@@ -31,6 +35,7 @@ describe('ProfileScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.mocked(getSession).mockResolvedValue({ accessToken: 'token', user });
+    jest.mocked(getCategories).mockResolvedValue({ categories: [] });
   });
 
   test('loads and displays the available profile data', async () => {
@@ -38,6 +43,7 @@ describe('ProfileScreen', () => {
     expect(await screen.findByText('Ada Lovelace')).toBeTruthy();
     expect(screen.getByText('42')).toBeTruthy();
     expect(screen.getByText('ada@example.com')).toBeTruthy();
+    expect(await screen.findByText('Categories')).toBeTruthy();
   });
 
   test('shows a loading state while the stored profile is being read', async () => {

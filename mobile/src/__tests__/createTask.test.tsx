@@ -2,7 +2,7 @@ import React from 'react';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import CreateTaskScreen from '../app/create-task';
-import { ApiError, createTask } from '../services/api';
+import { ApiError, createTask, getCategories } from '../services/api';
 
 jest.mock('expo-router', () => ({ router: { replace: jest.fn() } }));
 jest.mock('../services/authStorage', () => ({ clearSession: jest.fn().mockResolvedValue(undefined) }));
@@ -13,10 +13,16 @@ jest.mock('../services/api', () => ({
     constructor(message: string, status: number, code?: string) { super(message); this.status = status; this.code = code; }
   },
   createTask: jest.fn(),
+  getCategories: jest.fn(),
 }));
 
 describe('CreateTaskScreen', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.mocked(getCategories).mockResolvedValue({
+      categories: [{ id: 7, name: 'School' }],
+    });
+  });
 
   test('requires a title before calling the API', async () => {
     const screen = await render(<CreateTaskScreen />);
@@ -25,15 +31,38 @@ describe('CreateTaskScreen', () => {
     expect(createTask).not.toHaveBeenCalled();
   });
 
-  test('validates optional due date and category id', async () => {
+  test('validates the optional due date and offers managed categories', async () => {
     const screen = await render(<CreateTaskScreen />);
     await fireEvent.changeText(screen.getByLabelText('Task title'), 'Plan release');
     await fireEvent.changeText(screen.getByLabelText('Due date'), 'bad date');
-    await fireEvent.changeText(screen.getByLabelText('Category ID'), '-1');
+    expect(await screen.findByRole('radio', { name: 'School' })).toBeTruthy();
     await fireEvent.press(screen.getByLabelText('Create task submit'));
     expect(screen.getByText('Enter a valid date and time.')).toBeTruthy();
-    expect(screen.getByText('Category ID must be a positive whole number.')).toBeTruthy();
     expect(createTask).not.toHaveBeenCalled();
+  });
+
+  test('distinguishes categories named All and None from special picker options', async () => {
+    jest.mocked(getCategories).mockResolvedValue({
+      categories: [
+        { id: 1, name: 'All' },
+        { id: 2, name: 'None' },
+      ],
+    });
+    const screen = await render(<CreateTaskScreen />);
+
+    expect(await screen.findByRole('radio', { name: 'Uncategorized' })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: 'All' })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: 'None' })).toBeTruthy();
+  });
+
+  test('distinguishes a category named Uncategorized from the unassigned option', async () => {
+    jest.mocked(getCategories).mockResolvedValue({
+      categories: [{ id: 8, name: 'Uncategorized' }],
+    });
+    const screen = await render(<CreateTaskScreen />);
+
+    expect(await screen.findByRole('radio', { name: 'Uncategorized' })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: 'Uncategorized category' })).toBeTruthy();
   });
 
   test('submits existing task fields and retains values after API failure', async () => {
@@ -41,7 +70,7 @@ describe('CreateTaskScreen', () => {
     const screen = await render(<CreateTaskScreen />);
     await fireEvent.changeText(screen.getByLabelText('Task title'), 'Plan release');
     await fireEvent.changeText(screen.getByLabelText('Description'), 'Write release notes');
-    await fireEvent.changeText(screen.getByLabelText('Category ID'), '7');
+    await fireEvent.press(await screen.findByRole('radio', { name: 'School' }));
     await fireEvent.press(screen.getByText('High'));
     await fireEvent.press(screen.getByLabelText('Create task submit'));
     await waitFor(() => expect(createTask).toHaveBeenCalledWith({
