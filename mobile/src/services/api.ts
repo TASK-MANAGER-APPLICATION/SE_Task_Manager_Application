@@ -19,6 +19,11 @@ export type User = {
   name: string;
 };
 
+export type Category = {
+  id: number | string;
+  name: string;
+};
+
 export type LoginResponse = {
   token: string;
   user: User;
@@ -244,6 +249,14 @@ function isTask(value: unknown): value is Task {
   );
 }
 
+function isCategory(value: unknown): value is Category {
+  return (
+    isRecord(value) &&
+    (typeof value.id === 'number' || typeof value.id === 'string') &&
+    typeof value.name === 'string'
+  );
+}
+
 function isTaskSummary(value: unknown): value is TaskSummary {
   if (!isRecord(value) || !isRecord(value.statusCounts) ||
       !isRecord(value.priorityCounts)) {
@@ -408,6 +421,71 @@ export async function deleteTask(
   id: number | string
 ): Promise<void> {
   await request<void>(`/tasks/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function getCategories(): Promise<{ categories: Category[] }> {
+  const result = await request<unknown>('/categories');
+
+  if (
+    !isRecord(result) ||
+    !Array.isArray(result.categories) ||
+    !result.categories.every(isCategory)
+  ) {
+    throw new ApiError(
+      'The server returned an invalid category list. Please try again.',
+      502,
+      'INVALID_RESPONSE'
+    );
+  }
+
+  return { categories: result.categories };
+}
+
+export async function createCategory(
+  name: string
+): Promise<{ category: Category }> {
+  const result = await request<unknown>('/categories', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
+
+  if (!isRecord(result) || !isCategory(result.category)) {
+    throw new ApiError(
+      'The server returned an invalid category. Please try again.',
+      502,
+      'INVALID_RESPONSE'
+    );
+  }
+
+  return { category: result.category };
+}
+
+export async function renameCategory(
+  id: number | string,
+  name: string
+): Promise<{ category: Category }> {
+  const result = await request<unknown>(`/categories/${encodeURIComponent(String(id))}`, {
+    method: 'PUT',
+    body: JSON.stringify({ name }),
+  });
+
+  if (!isRecord(result) || !isCategory(result.category)) {
+    throw new ApiError(
+      'The server returned an invalid category. Please try again.',
+      502,
+      'INVALID_RESPONSE'
+    );
+  }
+
+  return { category: result.category };
+}
+
+export async function deleteCategory(
+  id: number | string
+): Promise<void> {
+  await request<void>(`/categories/${encodeURIComponent(String(id))}`, {
     method: 'DELETE',
   });
 }

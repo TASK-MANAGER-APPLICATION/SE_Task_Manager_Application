@@ -4,11 +4,13 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import HomeScreen from '../app/home';
 import {
   completeTask,
+  getCategories,
   deleteTask,
   getTasks,
   getTaskSummary,
   Task,
   TaskSummary,
+  updateTask,
 } from '../services/api';
 
 const sample: Task = {
@@ -97,6 +99,7 @@ jest.mock(
 jest.mock('../services/api', () => ({
   ApiError: class ApiError extends Error { status = 500; code?: string; },
   getTasks: jest.fn(),
+  getCategories: jest.fn(),
   getTaskSummary: jest.fn(),
   createTask: jest.fn(),
   completeTask: jest.fn(),
@@ -112,6 +115,12 @@ describe('HomeScreen task list', () => {
     jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     jest.mocked(getTasks).mockResolvedValue({ tasks: [] });
     jest.mocked(getTaskSummary).mockResolvedValue(sampleSummary);
+    jest.mocked(getCategories).mockResolvedValue({
+      categories: [
+        { id: 2, name: 'School' },
+        { id: 3, name: 'Personal' },
+      ],
+    });
   });
   afterEach(() => {
     mockHomeFocused = true;
@@ -343,7 +352,7 @@ describe('HomeScreen task list', () => {
     const screen = await render(<HomeScreen />);
     expect(await screen.findByText('Ship update')).toBeTruthy();
     expect(screen.getByText('High priority')).toBeTruthy();
-    expect(screen.getByText('Category ID: 2')).toBeTruthy();
+    expect(screen.getAllByText('School').length).toBeGreaterThan(0);
     const checkbox = screen.getByRole('checkbox');
     await fireEvent.press(checkbox);
     await waitFor(() => expect(completeTask).toHaveBeenCalledWith(sample.id));
@@ -358,6 +367,68 @@ describe('HomeScreen task list', () => {
     expect(await screen.findByText('No matching tasks')).toBeTruthy();
     await fireEvent.press(screen.getAllByText('Reset filters')[0]);
     expect(await screen.findByText('Ship update')).toBeTruthy();
+  });
+
+  test('filters tasks by category and assigns a category during inline editing', async () => {
+    jest.mocked(getTasks).mockResolvedValue({ tasks: [sample] });
+    const screen = await render(<HomeScreen />);
+    await screen.findByText('Ship update');
+
+    await fireEvent.press(screen.getByText('Personal'));
+    await waitFor(() => expect(getTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ categoryId: '3' })
+    ));
+
+    jest.mocked(updateTask).mockResolvedValue({
+      task: { ...sample, category_id: 3 },
+    });
+    await fireEvent.press(screen.getAllByText('Reset filters')[0]);
+    await screen.findByText('Ship update');
+    await fireEvent.press(screen.getByText('Edit'));
+    await fireEvent.press(screen.getByRole('radio', { name: 'Personal' }));
+    await fireEvent.press(screen.getByText('Save changes'));
+    await waitFor(() => expect(updateTask).toHaveBeenCalledWith(
+      sample.id,
+      expect.objectContaining({ category_id: '3' })
+    ));
+  });
+
+  test('distinguishes a category named All from the all-categories filter', async () => {
+    jest.mocked(getCategories).mockResolvedValue({
+      categories: [{ id: 20, name: 'All' }],
+    });
+    jest.mocked(getTasks).mockResolvedValue({ tasks: [sample] });
+    const screen = await render(<HomeScreen />);
+    await screen.findByText('Ship update');
+
+    expect(screen.getByText('All categories')).toBeTruthy();
+    const allLabels = screen.getAllByText('All');
+    await fireEvent.press(allLabels[allLabels.length - 1]);
+    await waitFor(() => expect(getTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ categoryId: '20' })
+    ));
+  });
+
+  test('filters only tasks with no category assigned', async () => {
+    const uncategorizedTask: Task = {
+      ...sample,
+      id: 15,
+      title: 'Uncategorized task',
+      category_id: null,
+    };
+    jest.mocked(getTasks).mockResolvedValue({
+      tasks: [sample, uncategorizedTask],
+    });
+    const screen = await render(<HomeScreen />);
+    await screen.findByText('Ship update');
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Uncategorized' }));
+
+    await waitFor(() => expect(getTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ categoryId: 'uncategorized' })
+    ));
+    expect(screen.getByText('Uncategorized task')).toBeTruthy();
+    expect(screen.queryByText('Ship update')).toBeNull();
   });
 
   test('confirms before deleting and removes task after confirmation', async () => {

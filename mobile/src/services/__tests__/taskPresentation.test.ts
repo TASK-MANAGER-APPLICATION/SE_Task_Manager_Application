@@ -14,6 +14,19 @@ describe('task filtering and sorting', () => {
     expect(tasks.map((task) => task.id)).toEqual([1, 2, 3]);
   });
 
+  test('filters uncategorized tasks with null or missing category IDs', () => {
+    const uncategorizedTasks: Task[] = [
+      { id: 4, title: 'No category', category_id: null },
+      { id: 5, title: 'Missing category' },
+      { id: 6, title: 'Has category', category_id: 2 },
+    ];
+
+    expect(
+      filterAndSortTasks(uncategorizedTasks, { categoryId: 'Uncategorized' })
+        .map((task) => task.id)
+    ).toEqual([4, 5]);
+  });
+
   test('sorts by title and priority in either direction', () => {
     expect(filterAndSortTasks(tasks, {}, 'Title', 'Ascending').map((task) => task.title)).toEqual(['Alpha', 'Bravo', 'Charlie']);
     expect(filterAndSortTasks(tasks, {}, 'Priority', 'Descending').map((task) => task.priority)).toEqual(['High', 'Medium', 'Low']);

@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 
+import CategoryManager from '../components/category-manager';
 import { ApiError, logout, User } from '../services/api';
 import { clearSession, getSession, saveSession } from '../services/authStorage';
 import { isValidEmail } from '../services/registrationValidation';
@@ -163,6 +164,7 @@ export default function ProfileScreen() {
                 </Pressable>
               )}
             </View>
+            <CategoryManager />
             <Pressable accessibilityRole="button" style={styles.secondaryButton} onPress={() => router.replace('/change-password' as never)}>
               <Text style={styles.secondaryText}>Change Password</Text>
             </Pressable>

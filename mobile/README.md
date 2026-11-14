@@ -106,13 +106,14 @@ npm test -- --runInBand
 
 ## Current backend limitations
 
-The mobile client uses the available authentication and task endpoints. The
-current backend does not provide forgot/reset-password endpoints, category
-management endpoints, profile GET/PUT endpoints, FCM device-token registration,
-or reminder notification delivery. Dashboard statistics use a separate
-aggregate endpoint, and the task list loads 50 rows at a time with server-side
-filtering and sorting. Profile edits are stored locally in the mobile session;
-category assignment accepts an existing category ID.
+The mobile client uses the available authentication, task, and category
+endpoints. Users can manage categories from Profile, assign them when creating
+or editing tasks, and filter tasks by category. The backend does not provide
+forgot/reset-password endpoints, profile GET/PUT endpoints, FCM device-token
+registration, or reminder notification delivery. Dashboard statistics use a
+separate aggregate endpoint, and the task list loads 50 rows at a time with
+server-side filtering and sorting. Profile edits are stored locally in the
+mobile session.
 
 An Android SDK, native Android project directory, and EAS build configuration
 are not included in this checkout. An installable APK has not been built.

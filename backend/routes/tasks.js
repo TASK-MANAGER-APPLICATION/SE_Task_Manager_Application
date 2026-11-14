@@ -9,6 +9,16 @@ router.use(authMiddleware);
 
 const validPriorities = ["Low", "Medium", "High"];
 const MAX_PAGE_SIZE = 100;
+const MAX_BIGINT = "9223372036854775807";
+
+function isValidCategoryId(value) {
+  if (typeof value !== "string" || !/^[1-9]\d*$/.test(value)) {
+    return false;
+  }
+
+  return value.length < MAX_BIGINT.length ||
+    (value.length === MAX_BIGINT.length && value <= MAX_BIGINT);
+}
 
 function validDueDate(value) {
   return value == null || (
@@ -95,10 +105,7 @@ router.post("/", async (req, res) => {
     });
   }
 
-  if (
-    category_id != null &&
-    (!Number.isInteger(Number(category_id)) || Number(category_id) <= 0)
-  ) {
+  if (category_id != null && !isValidCategoryId(category_id)) {
     return res.status(400).json({
       code: "INVALID_CATEGORY",
       message: "Category ID must be a positive integer.",
@@ -196,8 +203,11 @@ router.get("/", async (req, res) => {
     return res.status(400).json({ code: "INVALID_PRIORITY", message: "Invalid priority." });
   }
 
-  if (categoryId !== undefined &&
-      (!Number.isInteger(Number(categoryId)) || Number(categoryId) <= 0)) {
+  if (
+    categoryId !== undefined &&
+    categoryId !== "uncategorized" &&
+    !isValidCategoryId(categoryId)
+  ) {
     return res.status(400).json({ code: "INVALID_CATEGORY", message: "Invalid category ID." });
   }
 
@@ -235,7 +245,11 @@ router.get("/", async (req, res) => {
 
   if (status) addFilter("status", status);
   if (priority) addFilter("priority", priority);
-  if (categoryId !== undefined) addFilter("category_id", Number(categoryId));
+  if (categoryId === "uncategorized") {
+    conditions.push("category_id IS NULL");
+  } else if (categoryId !== undefined) {
+    addFilter("category_id", categoryId);
+  }
   if (dueBefore) addFilter("due_at", dueBefore, "<");
   if (dueAfter) addFilter("due_at", dueAfter, ">");
   values.push(limit + 1);
@@ -319,7 +333,7 @@ router.put("/:id", async (req, res) => {
   }
 
   if (category_id !== undefined && category_id !== null &&
-      (!Number.isInteger(Number(category_id)) || Number(category_id) <= 0)) {
+      !isValidCategoryId(category_id)) {
     return res.status(400).json({ code: "INVALID_CATEGORY", message: "Invalid category ID." });
   }
 

@@ -271,6 +271,100 @@ describe("Tasks API", () => {
     expect(response.body.code).toBe(code);
   });
 
+  test.each([
+    ["a numeric value", 1],
+    ["scientific notation", "1e2"],
+    ["a decimal", "1.0"],
+    ["a leading sign", "+1"],
+    ["a negative value", "-1"],
+    ["leading whitespace", " 1"],
+    ["trailing whitespace", "1 "],
+    ["zero", "0"],
+    ["a leading zero", "01"],
+    ["a value above BIGINT", "9223372036854775808"],
+  ])("rejects %s as a category ID on create and update", async (_label, categoryId) => {
+    const create = await request(app)
+      .post("/tasks")
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({ title: "Malformed category ID", category_id: categoryId });
+    const update = await request(app)
+      .put(`/tasks/${taskId}`)
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({ category_id: categoryId });
+
+    expect(create.status).toBe(400);
+    expect(create.body.code).toBe("INVALID_CATEGORY");
+    expect(update.status).toBe(400);
+    expect(update.body.code).toBe("INVALID_CATEGORY");
+  });
+
+  test("accepts the maximum BIGINT category ID for database lookup", async () => {
+    const maxBigint = "9223372036854775807";
+    const create = await request(app)
+      .post("/tasks")
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({ title: "Missing maximum category", category_id: maxBigint });
+    const update = await request(app)
+      .put(`/tasks/${taskId}`)
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({ category_id: maxBigint });
+
+    expect(create.status).toBe(404);
+    expect(create.body.code).toBe("CATEGORY_NOT_FOUND");
+    expect(update.status).toBe(404);
+    expect(update.body.code).toBe("CATEGORY_NOT_FOUND");
+  });
+
+  test.each(["1e2", "1.0", "9223372036854775808"])(
+    "rejects malformed or out-of-range category filter %s",
+    async (categoryId) => {
+      const response = await request(app)
+        .get(`/tasks?categoryId=${encodeURIComponent(categoryId)}`)
+        .set("Authorization", `Bearer ${tokenA}`);
+
+      expect(response.status).toBe(400);
+      expect(response.body.code).toBe("INVALID_CATEGORY");
+    }
+  );
+
+  test("filters tasks with a null category ID as uncategorized", async () => {
+    const category = await pool.query(
+      "INSERT INTO categories (user_id, name) VALUES ($1, $2) RETURNING id",
+      [userAId, `Uncategorized filter ${Date.now()}`]
+    );
+    const uncategorizedTask = await request(app)
+      .post("/tasks")
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({ title: "Uncategorized filter result" });
+    const categorizedTask = await request(app)
+      .post("/tasks")
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({
+        title: "Categorized filter exclusion",
+        category_id: category.rows[0].id,
+      });
+
+    expect(uncategorizedTask.status).toBe(201);
+    expect(categorizedTask.status).toBe(201);
+
+    const response = await request(app)
+      .get("/tasks?categoryId=uncategorized")
+      .set("Authorization", `Bearer ${tokenA}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.tasks.map((task) => String(task.id))).toContain(
+      String(uncategorizedTask.body.task.id)
+    );
+    expect(response.body.tasks.map((task) => String(task.id))).not.toContain(
+      String(categorizedTask.body.task.id)
+    );
+    expect(
+      response.body.tasks.find(
+        (task) => String(task.id) === String(uncategorizedTask.body.task.id)
+      ).category_id
+    ).toBeNull();
+  });
+
   test("does not assign another user's category to a task", async () => {
     const response = await request(app)
       .post("/tasks")

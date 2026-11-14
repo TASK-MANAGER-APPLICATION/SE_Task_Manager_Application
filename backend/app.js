@@ -49,5 +49,6 @@ app.get("/health", (req, res) => {
 
 app.use("/auth", require("./routes/auth"));
 app.use("/tasks", require("./routes/tasks"));
+app.use("/categories", require("./routes/categories"));
 
 module.exports = app;

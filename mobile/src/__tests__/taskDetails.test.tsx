@@ -3,7 +3,7 @@ import { Alert } from 'react-native';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import TaskDetailsScreen from '../app/task/[id]';
-import { completeTask, getTask, Task, updateTask } from '../services/api';
+import { completeTask, getCategories, getTask, Task, updateTask } from '../services/api';
 
 const task: Task = {
   id: 12,
@@ -26,6 +26,7 @@ jest.mock('../services/authStorage', () => ({ clearSession: jest.fn().mockResolv
 jest.mock('../services/api', () => ({
   ApiError: class ApiError extends Error { status = 500; code?: string; },
   getTask: jest.fn(),
+  getCategories: jest.fn(),
   completeTask: jest.fn(),
   deleteTask: jest.fn(),
   updateTask: jest.fn(),
@@ -36,6 +37,12 @@ describe('TaskDetailsScreen', () => {
     jest.clearAllMocks();
     jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     jest.mocked(getTask).mockResolvedValue({ task });
+    jest.mocked(getCategories).mockResolvedValue({
+      categories: [
+        { id: 5, name: 'Work' },
+        { id: 8, name: 'Personal' },
+      ],
+    });
   });
   afterEach(() => jest.restoreAllMocks());
 
@@ -43,8 +50,34 @@ describe('TaskDetailsScreen', () => {
     const screen = await render(<TaskDetailsScreen />);
     expect(await screen.findByText('Prepare demo')).toBeTruthy();
     expect(screen.getByText('Slides and walkthrough')).toBeTruthy();
-    expect(screen.getByText('5')).toBeTruthy();
+    expect(await screen.findByText('Work')).toBeTruthy();
     expect(screen.getByText('No')).toBeTruthy();
+  });
+
+  test('shows Uncategorized for a task with no category assigned', async () => {
+    jest.mocked(getTask).mockResolvedValue({
+      task: { ...task, category_id: null },
+    });
+    const screen = await render(<TaskDetailsScreen />);
+
+    expect(await screen.findByText('Uncategorized')).toBeTruthy();
+    expect(screen.queryByText('None')).toBeNull();
+  });
+
+  test('clears the category to null when Uncategorized is selected', async () => {
+    jest.mocked(updateTask).mockResolvedValue({
+      task: { ...task, category_id: null },
+    });
+    const screen = await render(<TaskDetailsScreen />);
+    await fireEvent.press(await screen.findByText('Edit Task'));
+    await fireEvent.press(screen.getByRole('radio', { name: 'Uncategorized' }));
+    await fireEvent.press(screen.getByText('Save Changes'));
+
+    await waitFor(() => expect(updateTask).toHaveBeenCalledWith(
+      task.id,
+      expect.objectContaining({ category_id: null })
+    ));
+    expect(await screen.findByText('Uncategorized')).toBeTruthy();
   });
 
   test('shows loading and retryable error states', async () => {
@@ -70,9 +103,10 @@ describe('TaskDetailsScreen', () => {
     const screen = await render(<TaskDetailsScreen />);
     await fireEvent.press(await screen.findByText('Edit Task'));
     await fireEvent.changeText(screen.getByLabelText('Task title'), 'Updated demo');
+    await fireEvent.press(screen.getByRole('radio', { name: 'Personal' }));
     await fireEvent.press(screen.getByText('Save Changes'));
     await waitFor(() => expect(updateTask).toHaveBeenCalledWith(task.id, expect.objectContaining({
-      title: 'Updated demo', priority: 'High', category_id: '5',
+      title: 'Updated demo', priority: 'High', category_id: '8',
     })));
     expect(await screen.findByText('Updated demo')).toBeTruthy();
   });

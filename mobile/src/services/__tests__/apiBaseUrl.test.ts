@@ -152,6 +152,7 @@ describe('API base URL', () => {
     } as Response);
 
     await expect(apiClient.getTasks({
+      categoryId: 'uncategorized',
       limit: 50,
       offset: 100,
       sortBy: 'created_at',
@@ -162,7 +163,7 @@ describe('API base URL', () => {
     });
 
     expect(fetch).toHaveBeenCalledWith(
-      'http://10.0.2.2:3000/tasks?sortBy=created_at&order=desc&limit=50&offset=100',
+      'http://10.0.2.2:3000/tasks?categoryId=uncategorized&sortBy=created_at&order=desc&limit=50&offset=100',
       expect.any(Object)
     );
   });

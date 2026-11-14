@@ -19,9 +19,11 @@ import { useFocusEffect, router } from 'expo-router';
 
 import {
   ApiError,
+  Category,
   completeTask,
   createTask,
   deleteTask,
+  getCategories,
   getTasks,
   getTaskSummary,
   GetTasksParams,
@@ -30,6 +32,7 @@ import {
   updateTask,
 } from '../services/api';
 
+import { CategoryPicker } from '../components/category-picker';
 import { filterAndSortTasks, isTaskOverdue } from '../services/taskPresentation';
 
 type StatusFilter = 'All' | 'Pending' | 'Completed';
@@ -68,6 +71,8 @@ export default function HomeScreen() {
   const [summary, setSummary] = useState<TaskSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [summaryError, setSummaryError] = useState('');
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [categoriesError, setCategoriesError] = useState('');
 
   const [error, setError] = useState('');
   const [errorTitle, setErrorTitle] = useState('Unable to load tasks');
@@ -98,16 +103,6 @@ export default function HomeScreen() {
   const completedCount = summary?.completed;
   const pendingCount = summary?.pending;
 
-  const categoryOptions = Array.from(
-    new Set(
-      tasks.flatMap((task) =>
-        task.category_id === null || task.category_id === undefined
-          ? []
-          : [String(task.category_id)]
-      )
-    )
-  );
-
   const sortedTasks = filterAndSortTasks(
     tasks,
     { status: statusFilter, priority: priorityFilter, categoryId: categoryFilter },
@@ -136,7 +131,11 @@ export default function HomeScreen() {
     return {
       ...(statusFilter !== 'All' ? { status: statusFilter } : {}),
       ...(priorityFilter !== 'All' ? { priority: priorityFilter } : {}),
-      ...(categoryFilter !== 'All' ? { categoryId: categoryFilter } : {}),
+      ...(categoryFilter === 'Uncategorized'
+        ? { categoryId: 'uncategorized' }
+        : categoryFilter !== 'All'
+          ? { categoryId: categoryFilter }
+          : {}),
       sortBy,
       order:
         sortField === 'None'
@@ -148,6 +147,30 @@ export default function HomeScreen() {
       offset,
     };
   }, [categoryFilter, priorityFilter, sortDirection, sortField, statusFilter]);
+
+  const loadCategories = useCallback(async () => {
+    setCategoriesError('');
+    try {
+      const result = await getCategories();
+      setCategories(result.categories);
+      setCategoryFilter((currentFilter) =>
+        currentFilter === 'All' ||
+        currentFilter === 'Uncategorized' ||
+        result.categories.some((category) => String(category.id) === currentFilter)
+          ? currentFilter
+          : 'All'
+      );
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'SESSION_EXPIRED') {
+        return;
+      }
+      setCategoriesError(
+        err instanceof ApiError
+          ? err.message
+          : 'Unable to load categories. Please try again.'
+      );
+    }
+  }, []);
 
   function resetFilters() {
     setStatusFilter('All');
@@ -163,11 +186,12 @@ export default function HomeScreen() {
   function renderFilterChip(
     label: string,
     selected: boolean,
-    onPress: () => void
+    onPress: () => void,
+    stableKey = label
   ) {
     return (
       <Pressable
-        key={label}
+        key={stableKey}
         accessibilityRole="button"
         accessibilityState={{ selected }}
         style={[
@@ -365,6 +389,12 @@ export default function HomeScreen() {
     useCallback(() => {
       loadSummary();
     }, [loadSummary])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadCategories();
+    }, [loadCategories])
   );
 
   async function handleRefresh() {
@@ -582,6 +612,15 @@ export default function HomeScreen() {
     return date.toLocaleDateString();
   }
 
+  function getCategoryName(categoryId: Task['category_id']) {
+    if (categoryId === null || categoryId === undefined) {
+      return null;
+    }
+    return categories.find(
+      (category) => String(category.id) === String(categoryId)
+    )?.name ?? `Category ${categoryId}`;
+  }
+
   function getPriorityStyle(
     priority: Task['priority']
   ) {
@@ -680,13 +719,12 @@ export default function HomeScreen() {
                   Priority: {editingPriority} (tap to change)
                 </Text>
               </Pressable>
-              <TextInput
-                style={[styles.input, styles.formField]}
-                placeholder="Category ID (optional)"
-                value={editingCategoryId}
-                onChangeText={setEditingCategoryId}
-                editable={!savingTask}
-                autoCapitalize="none"
+              <Text style={styles.formLabel}>Category</Text>
+              <CategoryPicker
+                categories={categories}
+                categoryId={editingCategoryId}
+                onChange={setEditingCategoryId}
+                disabled={savingTask}
               />
               <View style={styles.taskActions}>
                 <Pressable
@@ -737,8 +775,8 @@ export default function HomeScreen() {
               {isTaskOverdue(item) ? (
                 <Text accessibilityLabel="Overdue task" style={styles.overdueLabel}>Overdue</Text>
               ) : null}
-              {item.category_id !== null && item.category_id !== undefined ? (
-                <Text style={styles.taskMeta}>Category ID: {item.category_id}</Text>
+              {getCategoryName(item.category_id) ? (
+                <Text style={styles.taskMeta}>{getCategoryName(item.category_id)}</Text>
               ) : null}
 
               <View style={styles.taskFooter}>
@@ -982,25 +1020,40 @@ export default function HomeScreen() {
             )}
           </View>
 
-          {categoryOptions.length > 0 ? (
-            <>
-              <Text style={styles.filterLabel}>Category</Text>
-              <View style={styles.filterOptions}>
-                {renderFilterChip(
-                  'All',
-                  categoryFilter === 'All',
-                  () => setCategoryFilter('All')
-                )}
-                {categoryOptions.map((categoryId) =>
-                  renderFilterChip(
-                    `Category ${categoryId}`,
-                    categoryFilter === categoryId,
-                    () => setCategoryFilter(categoryId)
-                  )
-                )}
-              </View>
-            </>
+          {categoriesError ? (
+            <View>
+              <Text accessibilityRole="alert" style={styles.categoryError}>{categoriesError}</Text>
+              <Pressable accessibilityRole="button" onPress={() => void loadCategories()}>
+                <Text style={styles.categoryRetry}>Retry categories</Text>
+              </Pressable>
+            </View>
           ) : null}
+
+          <Text style={styles.filterLabel}>Category</Text>
+          <View style={styles.filterOptions}>
+            {renderFilterChip(
+              'All categories',
+              categoryFilter === 'All',
+              () => setCategoryFilter('All'),
+              'all-categories'
+            )}
+            {renderFilterChip(
+              'Uncategorized',
+              categoryFilter === 'Uncategorized',
+              () => setCategoryFilter('Uncategorized'),
+              'uncategorized'
+            )}
+            {categories.map((category) =>
+              renderFilterChip(
+                category.name === 'Uncategorized'
+                  ? 'Uncategorized category'
+                  : category.name,
+                categoryFilter === String(category.id),
+                () => setCategoryFilter(String(category.id)),
+                String(category.id)
+              )
+            )}
+          </View>
         </View>
 
         <View style={styles.filtersCard}>
@@ -1111,15 +1164,16 @@ export default function HomeScreen() {
               </Text>
             </Pressable>
 
-            <TextInput
-              style={[styles.input, styles.formField]}
-              placeholder="Category ID (optional)"
-              placeholderTextColor="#8991A5"
-              value={newCategoryId}
-              onChangeText={setNewCategoryId}
-              editable={!addingTask}
-              autoCapitalize="none"
+            <Text style={styles.formLabel}>Category</Text>
+            <CategoryPicker
+              categories={categories}
+              categoryId={newCategoryId}
+              onChange={setNewCategoryId}
+              disabled={addingTask}
             />
+            {categoriesError ? (
+              <Text accessibilityRole="alert" style={styles.categoryError}>{categoriesError}</Text>
+            ) : null}
 
             <Pressable
               style={[
@@ -1432,6 +1486,14 @@ const styles = StyleSheet.create({
     marginBottom: 7,
   },
 
+  formLabel: {
+    color: '#626982',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 10,
+    marginBottom: 7,
+  },
+
   filterOptions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1526,6 +1588,18 @@ const styles = StyleSheet.create({
 
   formField: {
     marginTop: 10,
+  },
+
+  categoryError: {
+    color: '#B42318',
+    fontSize: 13,
+    marginTop: 8,
+  },
+
+  categoryRetry: {
+    color: '#5968D8',
+    fontWeight: '700',
+    marginTop: 6,
   },
 
   priorityPicker: {
