@@ -1,21 +1,31 @@
+
 import React from 'react';
 import { Alert } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import HomeScreen from '../app/home';
+
 import {
-  completeTask,
+  ApiError,
   getCategories,
   deleteTask,
   getTasks,
   getTaskSummary,
+  createTask,
+  setTaskStatus,
   Task,
   TaskSummary,
   updateTask,
 } from '../services/api';
+import { clearSession } from '../services/authStorage';
 
 const sample: Task = {
-  id: 4, title: 'Ship update', description: 'Prepare release', priority: 'High',
-  status: 'Pending', due_at: '2030-03-10T12:00:00Z', category_id: 2,
+  id: 4,
+  title: 'Ship update',
+  description: 'Prepare release',
+  priority: 'High',
+  status: 'Pending',
+  due_at: '2030-03-10T12:00:00Z',
+  category_id: 2,
 };
 const refreshedSample: Task = {
   ...sample,
@@ -96,13 +106,27 @@ jest.mock(
     };
   }
 );
+jest.mock('../services/authStorage', () => ({
+  clearSession: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('../services/api', () => ({
-  ApiError: class ApiError extends Error { status = 500; code?: string; },
+  ApiError: class ApiError extends Error {
+    status: number;
+    code?: string;
+
+    constructor(message: string, status: number, code?: string) {
+      super(message);
+      this.name = 'ApiError';
+      this.status = status;
+      this.code = code;
+    }
+  },
   getTasks: jest.fn(),
   getCategories: jest.fn(),
   getTaskSummary: jest.fn(),
   createTask: jest.fn(),
-  completeTask: jest.fn(),
+  setTaskStatus: jest.fn(),
   deleteTask: jest.fn(),
   updateTask: jest.fn(),
 }));
@@ -127,14 +151,22 @@ describe('HomeScreen task list', () => {
     mockHomeFocusListeners.clear();
     jest.restoreAllMocks();
   });
-  
+
   test('shows loading followed by the empty state', async () => {
-  jest.mocked(getTasks).mockResolvedValue({ tasks: [] });
+    const screen = await render(<HomeScreen />);
 
-  const screen = await render(<HomeScreen />);
+    expect(getTasks).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sortBy: 'created_at',
+        order: 'desc',
+        limit: 50,
+        offset: 0,
+      })
+    );
 
-  expect(await screen.findByText('No tasks yet')).toBeTruthy();
-});
+    expect(screen.getByText('No tasks yet')).toBeTruthy();
+    expect(screen.getByText('Add a task to get started.')).toBeTruthy();
+  });
 
   test('renders the dashboard while the initial task request is pending', async () => {
     const initialRequest = deferred<{ tasks: Task[] }>();
@@ -142,7 +174,7 @@ describe('HomeScreen task list', () => {
 
     const screen = await render(<HomeScreen />);
 
-    expect(screen.getByText('Task Manager')).toBeTruthy();
+    expect(screen.getByText('Dashboard')).toBeTruthy();
     expect(screen.getByText('Loading your tasks...')).toBeTruthy();
     expect(getTasks).toHaveBeenCalledTimes(1);
 
@@ -201,7 +233,7 @@ describe('HomeScreen task list', () => {
       .mockReturnValueOnce(refreshRequest.promise);
 
     const screen = await render(<HomeScreen />);
-    expect(screen.getByText('Task Manager')).toBeTruthy();
+    expect(screen.getByText('Dashboard')).toBeTruthy();
 
     await act(async () => {
       initialRequest.resolve({ tasks: [sample] });
@@ -314,12 +346,24 @@ describe('HomeScreen task list', () => {
   });
 
   test('shows a retry action for loading errors', async () => {
-    jest.mocked(getTasks).mockRejectedValueOnce(new Error('Service unavailable'));
+    jest.mocked(getTasks).mockRejectedValueOnce(
+      new Error('Service unavailable')
+    );
+
     const screen = await render(<HomeScreen />);
-    expect(await screen.findByText('Unable to load your tasks. Please try again.')).toBeTruthy();
+
+    expect(
+      await screen.findByText(
+        'Unable to load your tasks. Please try again.'
+      )
+    ).toBeTruthy();
+
     expect(screen.getByText('Retry')).toBeTruthy();
+
     jest.mocked(getTasks).mockResolvedValue({ tasks: [sample] });
+
     await fireEvent.press(screen.getByText('Retry'));
+
     expect(await screen.findByText('Ship update')).toBeTruthy();
   });
 
@@ -344,28 +388,69 @@ describe('HomeScreen task list', () => {
     expect(getTaskSummary).toHaveBeenCalledTimes(2);
   });
 
-  test('renders task data and completes a task through the existing API', async () => {
-    jest.mocked(getTasks)
-      .mockResolvedValueOnce({ tasks: [sample] })
-      .mockResolvedValue({ tasks: [{ ...sample, status: 'Completed' }] });
-    jest.mocked(completeTask).mockResolvedValue({ task: { ...sample, status: 'Completed' } });
+test('does not show a task-loading error when the session has expired', async () => {
+  const expired = new ApiError(
+    'Session expired.',
+    401,
+    'SESSION_EXPIRED'
+  );
+
+  jest.mocked(getTasks).mockRejectedValue(expired);
+
+  const screen = await render(<HomeScreen />);
+
+  await waitFor(() => {
+    expect(getTasks).toHaveBeenCalled();
+    expect(screen.queryByText('Unable to load tasks')).toBeNull();
+  });
+
+  expect(clearSession).not.toHaveBeenCalled();
+});
+
+  test('renders task data and completes a task through the status API', async () => {
+    jest.mocked(getTasks).mockResolvedValue({ tasks: [sample] });
+
+    jest.mocked(setTaskStatus).mockResolvedValue({
+      task: {
+        ...sample,
+        status: 'Completed',
+        completed_at: new Date().toISOString(),
+      },
+    });
+
     const screen = await render(<HomeScreen />);
+
     expect(await screen.findByText('Ship update')).toBeTruthy();
     expect(screen.getByText('High priority')).toBeTruthy();
     expect(screen.getAllByText('School').length).toBeGreaterThan(0);
+
     const checkbox = screen.getByRole('checkbox');
+
     await fireEvent.press(checkbox);
-    await waitFor(() => expect(completeTask).toHaveBeenCalledWith(sample.id));
-    await waitFor(() => expect(screen.queryByText('In progress')).toBeNull());
+
+    await waitFor(() =>
+      expect(setTaskStatus).toHaveBeenCalledWith(
+        sample.id,
+        'Completed'
+      )
+    );
+
+    expect(screen.getAllByText('Completed').length).toBeGreaterThan(0);
   });
 
   test('shows and clears the empty filtered state', async () => {
     jest.mocked(getTasks).mockResolvedValue({ tasks: [sample] });
+
     const screen = await render(<HomeScreen />);
+
     await screen.findByText('Ship update');
+
     await fireEvent.press(screen.getByText('Completed'));
+
     expect(await screen.findByText('No matching tasks')).toBeTruthy();
+
     await fireEvent.press(screen.getAllByText('Reset filters')[0]);
+
     expect(await screen.findByText('Ship update')).toBeTruthy();
   });
 
@@ -436,14 +521,29 @@ describe('HomeScreen task list', () => {
       .mockResolvedValueOnce({ tasks: [sample] })
       .mockResolvedValue({ tasks: [] });
     jest.mocked(deleteTask).mockResolvedValue(undefined);
+
     const screen = await render(<HomeScreen />);
+
     await fireEvent.press(await screen.findByText('Delete'));
+
     expect(Alert.alert).toHaveBeenCalled();
     expect(deleteTask).not.toHaveBeenCalled();
-    const actions = jest.mocked(Alert.alert).mock.calls[0][2] as { onPress?: () => void }[];
-    await act(async () => { actions.find((action) => action.onPress)?.onPress?.(); });
-    await waitFor(() => expect(deleteTask).toHaveBeenCalledWith(sample.id));
-    await waitFor(() => expect(screen.queryByText('Ship update')).toBeNull());
+
+    const actions = jest.mocked(Alert.alert).mock.calls[0][2] as {
+      onPress?: () => void;
+    }[];
+
+    await act(async () => {
+      actions.find((action) => action.onPress)?.onPress?.();
+    });
+
+    await waitFor(() =>
+      expect(deleteTask).toHaveBeenCalledWith(sample.id)
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByText('Ship update')).toBeNull()
+    );
   });
 
   test('loads dashboard statistics separately and pages task rows', async () => {

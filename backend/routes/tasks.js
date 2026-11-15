@@ -1,4 +1,3 @@
-
 const express = require("express");
 const pool = require("../db");
 const authMiddleware = require("../middleware/authMiddleware");
@@ -21,10 +20,11 @@ function isValidCategoryId(value) {
 }
 
 function validDueDate(value) {
-  return value == null || (
-    typeof value === "string" &&
-    value.trim() !== "" &&
-    Number.isFinite(Date.parse(value))
+  return (
+    value == null ||
+    (typeof value === "string" &&
+      value.trim() !== "" &&
+      Number.isFinite(Date.parse(value)))
   );
 }
 
@@ -156,10 +156,13 @@ router.post("/", async (req, res) => {
     );
 
     await client.query("COMMIT");
+
     return res.status(201).json({ task });
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
+
     console.error("Create task failed:", err.message);
+
     return res.status(500).json({
       code: "INTERNAL_ERROR",
       message: "Unable to create task.",
@@ -172,8 +175,13 @@ router.post("/", async (req, res) => {
 // List tasks for the authenticated user, with filters and sorting
 router.get("/", async (req, res) => {
   const {
-    status, priority, categoryId, dueBefore, dueAfter,
-    sortBy = "created_at", order = "desc",
+    status,
+    priority,
+    categoryId,
+    dueBefore,
+    dueAfter,
+    sortBy = "created_at",
+    order = "desc",
   } = req.query;
   const { limit: limitParam, offset: offsetParam } = req.query;
   let limit = 50;
@@ -188,31 +196,49 @@ router.get("/", async (req, res) => {
   };
 
   if (!allowedSortColumns[sortBy]) {
-    return res.status(400).json({ code: "INVALID_SORT", message: "Unsupported sort field." });
+    return res.status(400).json({
+      code: "INVALID_SORT",
+      message: "Unsupported sort field.",
+    });
   }
 
   if (!["asc", "desc"].includes(String(order).toLowerCase())) {
-    return res.status(400).json({ code: "INVALID_ORDER", message: "Order must be asc or desc." });
+    return res.status(400).json({
+      code: "INVALID_ORDER",
+      message: "Order must be asc or desc.",
+    });
   }
 
   if (status && !["Pending", "Completed"].includes(status)) {
-    return res.status(400).json({ code: "INVALID_STATUS", message: "Invalid status." });
+    return res.status(400).json({
+      code: "INVALID_STATUS",
+      message: "Invalid status.",
+    });
   }
 
   if (priority && !validPriorities.includes(priority)) {
-    return res.status(400).json({ code: "INVALID_PRIORITY", message: "Invalid priority." });
+    return res.status(400).json({
+      code: "INVALID_PRIORITY",
+      message: "Invalid priority.",
+    });
   }
 
-  if (
+    if (
     categoryId !== undefined &&
     categoryId !== "uncategorized" &&
     !isValidCategoryId(categoryId)
   ) {
-    return res.status(400).json({ code: "INVALID_CATEGORY", message: "Invalid category ID." });
+    return res.status(400).json({
+      code: "INVALID_CATEGORY",
+      message: "Invalid category ID.",
+    });
   }
 
   if (!validDueDate(dueBefore) || !validDueDate(dueAfter)) {
-    return res.status(400).json({ code: "INVALID_DUE_DATE", message: "Invalid due-date filter." });
+    return res.status(400).json({
+      code: "INVALID_DUE_DATE",
+      message: "Invalid due-date filter.",
+    });
   }
 
   if (limitParam !== undefined) {
@@ -245,11 +271,13 @@ router.get("/", async (req, res) => {
 
   if (status) addFilter("status", status);
   if (priority) addFilter("priority", priority);
+
   if (categoryId === "uncategorized") {
     conditions.push("category_id IS NULL");
   } else if (categoryId !== undefined) {
     addFilter("category_id", categoryId);
   }
+
   if (dueBefore) addFilter("due_at", dueBefore, "<");
   if (dueAfter) addFilter("due_at", dueAfter, ">");
   values.push(limit + 1);
@@ -258,11 +286,14 @@ router.get("/", async (req, res) => {
   const paginationSql = `LIMIT ${limitPlaceholder} OFFSET $${values.length}`;
 
   try {
+    const sortDirection = String(order).toUpperCase();
+
     const result = await pool.query(
       `SELECT * FROM tasks
        WHERE ${conditions.join(" AND ")}
-       ORDER BY ${allowedSortColumns[sortBy]} ${String(order).toUpperCase()},
-                id DESC NULLS LAST
+       ORDER BY
+         ${allowedSortColumns[sortBy]} ${sortDirection} NULLS LAST,
+         id DESC NULLS LAST
        ${paginationSql}`,
       values
     );
@@ -274,6 +305,7 @@ router.get("/", async (req, res) => {
     });
   } catch (err) {
     console.error("List tasks failed:", err.message);
+
     return res.status(500).json({
       code: "INTERNAL_ERROR",
       message: "Unable to retrieve tasks.",
@@ -317,24 +349,42 @@ router.put("/:id", async (req, res) => {
   const { title, description, due_at, priority, category_id } = req.body;
 
   if (!/^[1-9]\d*$/.test(req.params.id)) {
-    return res.status(400).json({ code: "INVALID_TASK_ID", message: "Invalid task ID." });
+    return res.status(400).json({
+      code: "INVALID_TASK_ID",
+      message: "Invalid task ID.",
+    });
   }
 
   if (title !== undefined && (typeof title !== "string" || !title.trim())) {
-    return res.status(400).json({ code: "INVALID_TITLE", message: "Title cannot be empty." });
+    return res.status(400).json({
+      code: "INVALID_TITLE",
+      message: "Title cannot be empty.",
+    });
   }
 
   if (priority !== undefined && !validPriorities.includes(priority)) {
-    return res.status(400).json({ code: "INVALID_PRIORITY", message: "Invalid priority." });
+    return res.status(400).json({
+      code: "INVALID_PRIORITY",
+      message: "Invalid priority.",
+    });
   }
 
   if (due_at !== undefined && !validDueDate(due_at)) {
-    return res.status(400).json({ code: "INVALID_DUE_DATE", message: "Invalid due date." });
+    return res.status(400).json({
+      code: "INVALID_DUE_DATE",
+      message: "Invalid due date.",
+    });
   }
 
-  if (category_id !== undefined && category_id !== null &&
-      !isValidCategoryId(category_id)) {
-    return res.status(400).json({ code: "INVALID_CATEGORY", message: "Invalid category ID." });
+    if (
+    category_id !== undefined &&
+    category_id !== null &&
+    !isValidCategoryId(category_id)
+  ) {
+    return res.status(400).json({
+      code: "INVALID_CATEGORY",
+      message: "Invalid category ID.",
+    });
   }
 
   const client = await pool.connect();
@@ -349,15 +399,23 @@ router.put("/:id", async (req, res) => {
 
     if (existing.rowCount === 0) {
       await client.query("ROLLBACK");
-      return res.status(404).json({ code: "TASK_NOT_FOUND", message: "Task not found." });
+
+      return res.status(404).json({
+        code: "TASK_NOT_FOUND",
+        message: "Task not found.",
+      });
     }
 
     const oldTask = existing.rows[0];
+
     const newTitle = title === undefined ? oldTask.title : title.trim();
-    const newDescription = description === undefined ? oldTask.description : description;
+    const newDescription =
+      description === undefined ? oldTask.description : description;
     const newDueAt = due_at === undefined ? oldTask.due_at : due_at;
-    const newPriority = priority === undefined ? oldTask.priority : priority;
-    const newCategoryId = category_id === undefined ? oldTask.category_id : category_id;
+    const newPriority =
+      priority === undefined ? oldTask.priority : priority;
+    const newCategoryId =
+      category_id === undefined ? oldTask.category_id : category_id;
 
     if (newCategoryId != null) {
       const category = await client.query(
@@ -376,29 +434,47 @@ router.put("/:id", async (req, res) => {
 
     const result = await client.query(
       `UPDATE tasks
-       SET title = $1, description = $2, due_at = $3,
-           priority = $4, category_id = $5,
-           reminder_sent = CASE WHEN due_at IS DISTINCT FROM $3 THEN FALSE ELSE reminder_sent END,
+       SET title = $1,
+           description = $2,
+           due_at = $3,
+           priority = $4,
+           category_id = $5,
+           reminder_sent = CASE
+             WHEN due_at IS DISTINCT FROM $3 THEN FALSE
+             ELSE reminder_sent
+           END,
            updated_at = NOW()
        WHERE id = $6 AND user_id = $7
        RETURNING *`,
       [
-        newTitle, newDescription, newDueAt, newPriority,
-        newCategoryId, req.params.id, req.user.id,
+        newTitle,
+        newDescription,
+        newDueAt,
+        newPriority,
+        newCategoryId,
+        req.params.id,
+        req.user.id,
       ]
     );
 
     await client.query(
-      "INSERT INTO task_events (user_id, task_id, action) VALUES ($1, $2, 'EDITED')",
+      `INSERT INTO task_events (user_id, task_id, action)
+       VALUES ($1, $2, 'EDITED')`,
       [req.user.id, req.params.id]
     );
 
     await client.query("COMMIT");
+
     return res.status(200).json({ task: result.rows[0] });
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
+
     console.error("Edit task failed:", err.message);
-    return res.status(500).json({ code: "INTERNAL_ERROR", message: "Unable to edit task." });
+
+    return res.status(500).json({
+      code: "INTERNAL_ERROR",
+      message: "Unable to edit task.",
+    });
   } finally {
     client.release();
   }
@@ -407,7 +483,10 @@ router.put("/:id", async (req, res) => {
 // Mark a task completed
 router.patch("/:id/complete", async (req, res) => {
   if (!/^[1-9]\d*$/.test(req.params.id)) {
-    return res.status(400).json({ code: "INVALID_TASK_ID", message: "Invalid task ID." });
+    return res.status(400).json({
+      code: "INVALID_TASK_ID",
+      message: "Invalid task ID.",
+    });
   }
 
   const client = await pool.connect();
@@ -417,8 +496,12 @@ router.patch("/:id/complete", async (req, res) => {
 
     const result = await client.query(
       `UPDATE tasks
-       SET status = 'Completed', completed_at = NOW(), updated_at = NOW()
-       WHERE id = $1 AND user_id = $2 AND status <> 'Completed'
+       SET status = 'Completed',
+           completed_at = NOW(),
+           updated_at = NOW()
+       WHERE id = $1
+         AND user_id = $2
+         AND status <> 'Completed'
        RETURNING *`,
       [req.params.id, req.user.id]
     );
@@ -432,23 +515,132 @@ router.patch("/:id/complete", async (req, res) => {
       );
 
       if (existing.rowCount === 0) {
-        return res.status(404).json({ code: "TASK_NOT_FOUND", message: "Task not found." });
+        return res.status(404).json({
+          code: "TASK_NOT_FOUND",
+          message: "Task not found.",
+        });
       }
 
-      return res.status(409).json({ code: "ALREADY_COMPLETED", message: "Task is already completed." });
+      return res.status(409).json({
+        code: "ALREADY_COMPLETED",
+        message: "Task is already completed.",
+      });
     }
 
     await client.query(
-      "INSERT INTO task_events (user_id, task_id, action) VALUES ($1, $2, 'COMPLETED')",
+      `INSERT INTO task_events (user_id, task_id, action)
+       VALUES ($1, $2, 'COMPLETED')`,
       [req.user.id, req.params.id]
     );
 
     await client.query("COMMIT");
+
     return res.status(200).json({ task: result.rows[0] });
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
+
     console.error("Complete task failed:", err.message);
-    return res.status(500).json({ code: "INTERNAL_ERROR", message: "Unable to complete task." });
+
+    return res.status(500).json({
+      code: "INTERNAL_ERROR",
+      message: "Unable to complete task.",
+    });
+  } finally {
+    client.release();
+  }
+});
+
+// Change a task's status in either direction
+router.patch("/:id/status", async (req, res) => {
+  const { status } = req.body;
+
+  if (!/^[1-9]\d*$/.test(req.params.id)) {
+    return res.status(400).json({
+      code: "INVALID_TASK_ID",
+      message: "Invalid task ID.",
+    });
+  }
+
+  if (!["Pending", "Completed"].includes(status)) {
+    return res.status(400).json({
+      code: "INVALID_STATUS",
+      message: "Status must be Pending or Completed.",
+    });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const existing = await client.query(
+      `SELECT id, status
+       FROM tasks
+       WHERE id = $1 AND user_id = $2
+       FOR UPDATE`,
+      [req.params.id, req.user.id]
+    );
+
+    if (existing.rowCount === 0) {
+      await client.query("ROLLBACK");
+
+      return res.status(404).json({
+        code: "TASK_NOT_FOUND",
+        message: "Task not found.",
+      });
+    }
+
+    const currentStatus = existing.rows[0].status;
+
+    // Avoid creating duplicate audit events for a no-op
+    if (currentStatus === status) {
+      const unchanged = await client.query(
+        `SELECT *
+         FROM tasks
+         WHERE id = $1 AND user_id = $2`,
+        [req.params.id, req.user.id]
+      );
+
+      await client.query("COMMIT");
+
+      return res.status(200).json({ task: unchanged.rows[0] });
+    }
+
+    const completedAt =
+      status === "Completed" ? new Date() : null;
+
+    const result = await client.query(
+      `UPDATE tasks
+       SET status = $1,
+           completed_at = $2,
+           updated_at = NOW()
+       WHERE id = $3 AND user_id = $4
+       RETURNING *`,
+      [status, completedAt, req.params.id, req.user.id]
+    );
+
+    await client.query(
+      `INSERT INTO task_events (user_id, task_id, action)
+       VALUES ($1, $2, $3)`,
+      [
+        req.user.id,
+        req.params.id,
+        status === "Completed" ? "COMPLETED" : "REOPENED",
+      ]
+    );
+
+    await client.query("COMMIT");
+
+    return res.status(200).json({ task: result.rows[0] });
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+
+    console.error("Task status update failed:", err.message);
+
+    return res.status(500).json({
+      code: "INTERNAL_ERROR",
+      message: "Unable to update task status.",
+    });
   } finally {
     client.release();
   }
@@ -457,7 +649,10 @@ router.patch("/:id/complete", async (req, res) => {
 // Delete a task while preserving its audit history
 router.delete("/:id", async (req, res) => {
   if (!/^[1-9]\d*$/.test(req.params.id)) {
-    return res.status(400).json({ code: "INVALID_TASK_ID", message: "Invalid task ID." });
+    return res.status(400).json({
+      code: "INVALID_TASK_ID",
+      message: "Invalid task ID.",
+    });
   }
 
   const client = await pool.connect();
@@ -472,11 +667,16 @@ router.delete("/:id", async (req, res) => {
 
     if (existing.rowCount === 0) {
       await client.query("ROLLBACK");
-      return res.status(404).json({ code: "TASK_NOT_FOUND", message: "Task not found." });
+
+      return res.status(404).json({
+        code: "TASK_NOT_FOUND",
+        message: "Task not found.",
+      });
     }
 
     await client.query(
-      "INSERT INTO task_events (user_id, task_id, action) VALUES ($1, $2, 'DELETED')",
+      `INSERT INTO task_events (user_id, task_id, action)
+       VALUES ($1, $2, 'DELETED')`,
       [req.user.id, req.params.id]
     );
 
@@ -486,11 +686,17 @@ router.delete("/:id", async (req, res) => {
     );
 
     await client.query("COMMIT");
+
     return res.status(204).end();
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
+
     console.error("Delete task failed:", err.message);
-    return res.status(500).json({ code: "INTERNAL_ERROR", message: "Unable to delete task." });
+
+    return res.status(500).json({
+      code: "INTERNAL_ERROR",
+      message: "Unable to delete task.",
+    });
   } finally {
     client.release();
   }
