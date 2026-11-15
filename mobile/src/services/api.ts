@@ -417,6 +417,16 @@ export async function completeTask(
   });
 }
 
+export async function setTaskStatus(
+  id: number | string,
+  status: 'Pending' | 'Completed'
+): Promise<{ task: Task }> {
+  return request<{ task: Task }>(`/tasks/${id}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+}
+
 export async function deleteTask(
   id: number | string
 ): Promise<void> {

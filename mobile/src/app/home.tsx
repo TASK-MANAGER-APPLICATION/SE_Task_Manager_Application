@@ -20,13 +20,13 @@ import { useFocusEffect, router } from 'expo-router';
 import {
   ApiError,
   Category,
-  completeTask,
   createTask,
   deleteTask,
   getCategories,
   getTasks,
   getTaskSummary,
   GetTasksParams,
+  setTaskStatus,
   Task,
   TaskSummary,
   updateTask,
@@ -466,31 +466,56 @@ export default function HomeScreen() {
     }
   }
 
-  async function handleCompleteTask(task: Task) {
-    if (task.status === 'Completed' || completingTaskId === task.id) {
+  async function handleToggleTask(task: Task) {
+    // Allow only one task status update at a time.
+    if (completingTaskId !== null) {
       return;
     }
 
+    const previousTask = tasks.find((item) => item.id === task.id);
+
+    if (!previousTask) {
+      return;
+    }
+
+    const nextStatus =
+      task.status === 'Completed' ? 'Pending' : 'Completed';
+
     setCompletingTaskId(task.id);
 
-    try {
-      await completeTask(task.id);
-      await refreshDashboard();
+    // Update the checkbox immediately while the server request runs.
+    setTasks((current) =>
+      current.map((item) =>
+        item.id === task.id
+          ? {
+              ...item,
+              status: nextStatus,
+              completed_at:
+                nextStatus === 'Completed'
+                  ? new Date().toISOString()
+                  : null,
+            }
+          : item
+      )
+    );
 
+    try {
+      await setTaskStatus(task.id, nextStatus);
       setError('');
     } catch (err) {
-      if (
-        err instanceof ApiError &&
-        err.code === 'ALREADY_COMPLETED'
-      ) {
-        await refreshDashboard();
-        return;
-      }
+      // Restore only this task if the server rejects the update.
+      setTasks((current) =>
+        current.map((item) =>
+          item.id === task.id ? previousTask : item
+        )
+      );
 
       handleTaskError(
         err,
-        'Unable to complete task',
-        'Unable to complete your task. Please try again.'
+        nextStatus === 'Completed'
+          ? 'Unable to complete task'
+          : 'Unable to reopen task',
+        'Unable to update this task. Please try again.'
       );
     } finally {
       setCompletingTaskId(null);
@@ -657,24 +682,38 @@ export default function HomeScreen() {
       >
         <Pressable
           accessibilityRole="checkbox"
-          accessibilityLabel={`Mark ${item.title} complete`}
-          accessibilityHint="Marks this task as completed."
+          accessibilityLabel={
+            completed
+              ? `Reopen task ${item.title}`
+              : `Mark ${item.title} complete`
+          }
+          accessibilityHint={
+            completed
+              ? 'Changes this task back to pending.'
+              : 'Marks this task as completed.'
+          }
           accessibilityState={{
             checked: completed,
-            disabled: completed || completing,
+            disabled:
+              completingTaskId !== null ||
+              editing ||
+              savingTask ||
+              deleting,
           }}
           style={[
             styles.checkbox,
             completed && styles.checkedBox,
           ]}
-          onPress={() => handleCompleteTask(item)}
-            disabled={completed || completing || editing || savingTask || deleting}
-        >
+          onPress={() => void handleToggleTask(item)}
+          disabled={
+            completingTaskId !== null ||
+            editing ||
+            savingTask ||
+            deleting
+          }
+      >
           {completing ? (
-            <ActivityIndicator
-              size="small"
-              color="#FFFFFF"
-            />
+            <ActivityIndicator size="small" color="#FFFFFF" />
           ) : (
             <Text style={styles.checkmark}>
               {completed ? '✓' : ''}

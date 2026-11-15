@@ -12,9 +12,9 @@ describe("Tasks API", () => {
 
   let tokenA;
   let tokenB;
+  let userAId;
   let taskId;
   let userAEmail;
-  let userAId;
   let userBId;
   let categoryOwnedByB;
 
@@ -192,15 +192,18 @@ describe("Tasks API", () => {
   }
 
   afterAll(async () => {
-    // Clean up test users and their dependent records.
-    if (users.length) {
-      await pool.query(
-        "DELETE FROM users WHERE email = ANY($1::text[])",
-        [users]
-      );
+    try {
+      // Clean up test users and their dependent records.
+      if (users.length) {
+        await pool.query(
+          "DELETE FROM users WHERE email = ANY($1::text[])",
+          [users]
+        );
+      }
+    } finally {
+      // Close this test suite's PostgreSQL pool after cleanup.
+      await pool.end();
     }
-
-    await pool.end();
   });
 
   test("rejects listing tasks without authentication", async () => {
@@ -420,6 +423,7 @@ describe("Tasks API", () => {
 
     expect(response.status).toBe(200);
     expect(Array.isArray(response.body.tasks)).toBe(true);
+
     expect(
       response.body.tasks.some(
         (task) => String(task.id) === String(taskId)
@@ -433,6 +437,7 @@ describe("Tasks API", () => {
       .set("Authorization", `Bearer ${tokenB}`);
 
     expect(response.status).toBe(200);
+
     expect(
       response.body.tasks.some(
         (task) => String(task.id) === String(taskId)
@@ -862,5 +867,131 @@ describe("Tasks API", () => {
       .send({ title: "Nonexistent task" });
 
     expect(response.status).toBe(404);
+  });
+
+  test("allows a completed task to be reopened", async () => {
+    const created = await request(app)
+      .post("/tasks")
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({ title: "Reopen test task" });
+
+    expect(created.status).toBe(201);
+
+    const id = created.body.task.id;
+
+    const completed = await request(app)
+      .patch(`/tasks/${id}/status`)
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({ status: "Completed" });
+
+    expect(completed.status).toBe(200);
+    expect(completed.body.task.status).toBe("Completed");
+    expect(completed.body.task.completed_at).not.toBeNull();
+
+    const reopened = await request(app)
+      .patch(`/tasks/${id}/status`)
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({ status: "Pending" });
+
+    expect(reopened.status).toBe(200);
+    expect(reopened.body.task.status).toBe("Pending");
+    expect(reopened.body.task.completed_at).toBeNull();
+
+    const events = await pool.query(
+      `SELECT action
+       FROM task_events
+       WHERE task_id = $1 AND user_id = $2
+       ORDER BY id`,
+      [id, userAId]
+    );
+
+    expect(events.rows.map((event) => event.action)).toEqual([
+      "CREATED",
+      "COMPLETED",
+      "REOPENED",
+    ]);
+  });
+
+  test("does not allow another user to reopen a task", async () => {
+    const created = await request(app)
+      .post("/tasks")
+      .set("Authorization", `Bearer ${tokenB}`)
+      .send({ title: "Private task" });
+
+    expect(created.status).toBe(201);
+
+    const response = await request(app)
+      .patch(`/tasks/${created.body.task.id}/status`)
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({ status: "Pending" });
+
+    expect(response.status).toBe(404);
+  });
+
+  test("rejects invalid task statuses", async () => {
+    const created = await request(app)
+      .post("/tasks")
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({ title: "Invalid status test" });
+
+    expect(created.status).toBe(201);
+
+    const response = await request(app)
+      .patch(`/tasks/${created.body.task.id}/status`)
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({ status: "Archived" });
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe("INVALID_STATUS");
+  });
+
+  test("keeps tasks without due dates last in both due-date sort directions", async () => {
+    const datedOld = await request(app)
+      .post("/tasks")
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({
+        title: "Due date old",
+        due_at: "2026-01-01T00:00:00.000Z",
+      });
+
+    const datedNew = await request(app)
+      .post("/tasks")
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({
+        title: "Due date new",
+        due_at: "2026-12-01T00:00:00.000Z",
+      });
+
+    const undated = await request(app)
+      .post("/tasks")
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({ title: "No due date" });
+
+    expect(datedOld.status).toBe(201);
+    expect(datedNew.status).toBe(201);
+    expect(undated.status).toBe(201);
+
+    const ascending = await request(app)
+      .get("/tasks")
+      .query({ sortBy: "due_at", order: "asc", limit: 100 })
+      .set("Authorization", `Bearer ${tokenA}`);
+
+    const descending = await request(app)
+      .get("/tasks")
+      .query({ sortBy: "due_at", order: "desc", limit: 100 })
+      .set("Authorization", `Bearer ${tokenA}`);
+
+    expect(ascending.status).toBe(200);
+    expect(descending.status).toBe(200);
+
+    const idsAsc = ascending.body.tasks.map((task) => String(task.id));
+    const idsDesc = descending.body.tasks.map((task) => String(task.id));
+
+    const undatedId = String(undated.body.task.id);
+    const oldId = String(datedOld.body.task.id);
+    const newId = String(datedNew.body.task.id);
+
+    expect(idsAsc.indexOf(undatedId)).toBeGreaterThan(idsAsc.indexOf(oldId));
+    expect(idsDesc.indexOf(undatedId)).toBeGreaterThan(idsDesc.indexOf(newId));
   });
 });
