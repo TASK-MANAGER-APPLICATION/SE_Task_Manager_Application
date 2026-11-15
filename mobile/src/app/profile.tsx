@@ -12,7 +12,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 
 import CategoryManager from '../components/category-manager';
-import { ApiError, logout, User } from '../services/api';
+import {
+  ApiError,
+  getProfile,
+  logout,
+  updateProfile,
+  User,
+} from '../services/api';
 import { clearSession, getSession, saveSession } from '../services/authStorage';
 import { isValidEmail } from '../services/registrationValidation';
 
@@ -30,61 +36,115 @@ export default function ProfileScreen() {
   const [logoutError, setLogoutError] = useState('');
 
   useEffect(() => {
-    let active = true;
-    getSession().then((session) => {
-      if (!active) return;
-      if (session?.user) {
-        setUser(session.user);
-        setName(session.user.name);
-        setEmail(session.user.email);
-      } else {
-        setError('Profile information is unavailable. Please log in again.');
-      }
-    }).catch(() => {
-      if (active) setError('Unable to load your profile. Please try again.');
-    }).finally(() => {
-      if (active) setLoading(false);
-    });
-    return () => { active = false; };
-  }, []);
+  let active = true;
 
-  async function handleSave() {
-    if (saving) return;
-    const normalizedName = name.trim();
-    const normalizedEmail = email.trim();
-    if (!normalizedName) {
-      setValidationError('Name is required.');
-      return;
-    }
-    if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
-      setValidationError('Enter a valid email address.');
-      return;
-    }
-
-    setValidationError('');
-    setError('');
-    setNotice('');
-    setSaving(true);
+  async function loadProfile() {
     try {
       const session = await getSession();
-      if (!session) {
+
+      if (!session?.accessToken) {
+        if (active) {
+          setError('Profile information is unavailable. Please log in again.');
+        }
+        return;
+      }
+
+      const result = await getProfile();
+
+      if (!active) return;
+
+      setUser(result.user);
+      setName(result.user.name);
+      setEmail(result.user.email);
+    } catch (cause) {
+      if (!active) return;
+
+      if (cause instanceof ApiError && cause.code === 'SESSION_EXPIRED') {
         await clearSession();
         router.replace('/login');
         return;
       }
-      const updatedUser = { ...user!, name: normalizedName, email: normalizedEmail };
-      await saveSession({ ...session, user: updatedUser });
-      setUser(updatedUser);
-      setName(updatedUser.name);
-      setEmail(updatedUser.email);
-      setEditing(false);
-      setNotice('Profile updated on this device. Server profile editing is not available yet.');
-    } catch {
-      setError('Unable to save your profile on this device. Please try again.');
+
+      setError(
+        cause instanceof ApiError
+          ? cause.message
+          : 'Unable to load your profile. Please try again.'
+      );
     } finally {
-      setSaving(false);
+      if (active) setLoading(false);
     }
   }
+
+  void loadProfile();
+
+  return () => {
+    active = false;
+  };
+}, []);
+
+  async function handleSave() {
+  if (saving || !user) return;
+
+  const normalizedName = name.trim();
+  const normalizedEmail = email.trim();
+
+  if (!normalizedName) {
+    setValidationError('Name is required.');
+    return;
+  }
+
+  if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
+    setValidationError('Enter a valid email address.');
+    return;
+  }
+
+  setValidationError('');
+  setError('');
+  setNotice('');
+  setSaving(true);
+
+  try {
+    const session = await getSession();
+
+    if (!session?.accessToken) {
+      await clearSession();
+      router.replace('/login');
+      return;
+    }
+
+    // The backend is the source of truth.
+    const result = await updateProfile(
+      normalizedName,
+      normalizedEmail
+    );
+
+    // Persist the returned server profile in the local session.
+    await saveSession({
+      ...session,
+      user: result.user,
+    });
+
+    setUser(result.user);
+    setName(result.user.name);
+    setEmail(result.user.email);
+    setEditing(false);
+    setNotice('Profile updated successfully.');
+  } catch (cause) {
+    if (cause instanceof ApiError && cause.code === 'SESSION_EXPIRED') {
+      await clearSession();
+      router.replace('/login');
+      return;
+    }
+
+    setError(
+      cause instanceof ApiError
+        ? cause.message
+        : 'Unable to update your profile. Please try again.'
+    );
+  } finally {
+    setSaving(false);
+  }
+}
 
   async function handleSessionExpired() {
     await clearSession();

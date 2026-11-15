@@ -36,10 +36,13 @@ describe("Authentication API", () => {
       "SELECT email, password_hash FROM users WHERE id = $1",
       [response.body.userId]
     );
+
     expect(storedUser.rowCount).toBe(1);
     expect(storedUser.rows[0].email).toBe(testEmail);
     expect(storedUser.rows[0].password_hash).not.toBe(testPassword);
-    expect(await bcrypt.compare(testPassword, storedUser.rows[0].password_hash)).toBe(true);
+    expect(
+      await bcrypt.compare(testPassword, storedUser.rows[0].password_hash)
+    ).toBe(true);
     expect(response.body).toEqual({ userId: response.body.userId });
     expect(response.body).not.toHaveProperty("password_hash");
   });
@@ -64,6 +67,7 @@ describe("Authentication API", () => {
     ["password without a special character", "TestPass123"],
   ])("POST /auth/register rejects a %s", async (_description, password) => {
     const email = `weak-${Date.now()}-${Math.random()}@example.com`;
+
     const response = await request(app)
       .post("/auth/register")
       .send({ email, password });
@@ -75,6 +79,7 @@ describe("Authentication API", () => {
       "SELECT id FROM users WHERE email = $1",
       [email]
     );
+
     expect(storedUser.rowCount).toBe(0);
   });
 
@@ -134,8 +139,7 @@ describe("Authentication API", () => {
   });
 
   test("POST /auth/logout rejects a request without a token", async () => {
-    const response = await request(app)
-      .post("/auth/logout");
+    const response = await request(app).post("/auth/logout");
 
     expect(response.status).toBe(401);
     expect(response.body.code).toBe("SESSION_EXPIRED");
@@ -182,6 +186,7 @@ describe("Authentication API", () => {
     const login = await request(app)
       .post("/auth/login")
       .send({ email: testEmail, password: testPassword });
+
     const token = login.body.token;
 
     await request(app)
@@ -258,15 +263,21 @@ describe("Authentication API", () => {
       "SELECT password_hash FROM users WHERE email = $1",
       [email]
     );
+
     expect(storedUser.rowCount).toBe(1);
     expect(storedUser.rows[0].password_hash).not.toBe(oldPassword);
-    expect(await bcrypt.compare(newPassword, storedUser.rows[0].password_hash)).toBe(true);
-    expect(await bcrypt.compare(oldPassword, storedUser.rows[0].password_hash)).toBe(false);
+    expect(
+      await bcrypt.compare(newPassword, storedUser.rows[0].password_hash)
+    ).toBe(true);
+    expect(
+      await bcrypt.compare(oldPassword, storedUser.rows[0].password_hash)
+    ).toBe(false);
 
     const sessions = await pool.query(
       "SELECT id FROM sessions WHERE user_id = $1",
       [login.body.user.id]
     );
+
     expect(sessions.rowCount).toBe(0);
 
     const oldSession = await request(app)
@@ -330,26 +341,31 @@ describe("Authentication API", () => {
     const email = `active-timeout-${Date.now()}@example.com`;
     createdEmails.push(email);
     const password = "TestPass123!";
+
     const registration = await request(app)
       .post("/auth/register")
       .send({ email, password });
+
     expect(registration.status).toBe(201);
 
     const login = await request(app)
       .post("/auth/login")
       .send({ email, password });
+
     expect(login.status).toBe(200);
 
     const tokenHash = crypto
       .createHash("sha256")
       .update(login.body.token)
       .digest("hex");
+
     await pool.query(
       `UPDATE sessions
        SET last_activity_at = NOW() - INTERVAL '29 minutes'
        WHERE token_hash = $1`,
       [tokenHash]
     );
+
     const before = await pool.query(
       "SELECT last_activity_at FROM sessions WHERE token_hash = $1",
       [tokenHash]
@@ -358,39 +374,45 @@ describe("Authentication API", () => {
     const response = await request(app)
       .get("/tasks")
       .set("Authorization", `Bearer ${login.body.token}`);
+
     expect(response.status).toBe(200);
 
     const after = await pool.query(
       "SELECT last_activity_at FROM sessions WHERE token_hash = $1",
       [tokenHash]
     );
+
     expect(after.rowCount).toBe(1);
     expect(new Date(after.rows[0].last_activity_at).getTime()).toBeGreaterThan(
       new Date(before.rows[0].last_activity_at).getTime()
     );
-    expect(Date.now() - new Date(after.rows[0].last_activity_at).getTime()).toBeLessThan(
-      60_000
-    );
+    expect(
+      Date.now() - new Date(after.rows[0].last_activity_at).getTime()
+    ).toBeLessThan(60_000);
   });
 
   test("expires a session at 30 minutes of inactivity", async () => {
     const email = `exact-timeout-${Date.now()}@example.com`;
     createdEmails.push(email);
     const password = "TestPass123!";
+
     const registration = await request(app)
       .post("/auth/register")
       .send({ email, password });
+
     expect(registration.status).toBe(201);
 
     const login = await request(app)
       .post("/auth/login")
       .send({ email, password });
+
     expect(login.status).toBe(200);
 
     const tokenHash = crypto
       .createHash("sha256")
       .update(login.body.token)
       .digest("hex");
+
     const updateResult = await pool.query(
       `UPDATE sessions
        SET last_activity_at = NOW() - INTERVAL '30 minutes'
@@ -403,7 +425,118 @@ describe("Authentication API", () => {
     const response = await request(app)
       .get("/tasks")
       .set("Authorization", `Bearer ${login.body.token}`);
+
     expect(response.status).toBe(401);
     expect(response.body.code).toBe("SESSION_EXPIRED");
+  });
+
+  test("GET /auth/profile rejects requests without authentication", async () => {
+    const response = await request(app).get("/auth/profile");
+
+    expect(response.status).toBe(401);
+    expect(response.body.code).toBe("SESSION_EXPIRED");
+  });
+
+  test("GET /auth/profile returns the authenticated user's profile", async () => {
+    const login = await request(app)
+      .post("/auth/login")
+      .send({ email: testEmail, password: testPassword });
+
+    expect(login.status).toBe(200);
+
+    const response = await request(app)
+      .get("/auth/profile")
+      .set("Authorization", `Bearer ${login.body.token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.user).toEqual({
+      id: login.body.user.id,
+      email: testEmail,
+      name: "Automated Test User",
+    });
+    expect(response.body.user).not.toHaveProperty("password_hash");
+  });
+
+  test("PUT /auth/profile updates the authenticated user's profile", async () => {
+    const profileEmail = `profile-${Date.now()}@example.com`;
+    const updatedEmail = `updated-${profileEmail}`;
+
+    // Register a dedicated account for this test.
+    createdEmails.push(profileEmail, updatedEmail);
+
+    const registration = await request(app)
+      .post("/auth/register")
+      .send({
+        email: profileEmail,
+        password: testPassword,
+        name: "Profile Test User",
+      });
+
+    expect(registration.status).toBe(201);
+
+    const login = await request(app)
+      .post("/auth/login")
+      .send({
+        email: profileEmail,
+        password: testPassword,
+      });
+
+    expect(login.status).toBe(200);
+
+    const response = await request(app)
+      .put("/auth/profile")
+      .set("Authorization", `Bearer ${login.body.token}`)
+      .send({
+        name: "Updated Test User",
+        email: updatedEmail,
+      });
+
+    expect(response.status).toBe(200);
+
+    expect(response.body.user).toEqual({
+      id: login.body.user.id,
+      name: "Updated Test User",
+      email: updatedEmail,
+    });
+
+    const storedUser = await pool.query(
+      "SELECT name, email FROM users WHERE id = $1",
+      [login.body.user.id]
+    );
+
+    expect(storedUser.rows[0]).toEqual({
+      name: "Updated Test User",
+      email: updatedEmail,
+    });
+  });
+
+  test("PUT /auth/profile rejects an email already used by another account", async () => {
+    const secondEmail = `duplicate-${Date.now()}@example.com`;
+    createdEmails.push(secondEmail);
+
+    const registration = await request(app)
+      .post("/auth/register")
+      .send({
+        email: secondEmail,
+        password: testPassword,
+        name: "Second Test User",
+      });
+
+    expect(registration.status).toBe(201);
+
+    const login = await request(app)
+      .post("/auth/login")
+      .send({ email: testEmail, password: testPassword });
+
+    const response = await request(app)
+      .put("/auth/profile")
+      .set("Authorization", `Bearer ${login.body.token}`)
+      .send({
+        name: "Updated Test User",
+        email: secondEmail,
+      });
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe("EMAIL_EXISTS");
   });
 });

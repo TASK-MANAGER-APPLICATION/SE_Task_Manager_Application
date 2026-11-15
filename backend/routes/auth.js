@@ -126,6 +126,108 @@ router.post("/login", async (req, res) => {
 });
 
 const authMiddleware = require("../middleware/authMiddleware");
+// Retrieve the authenticated user's profile.
+router.get("/profile", authMiddleware, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, email, name
+       FROM users
+       WHERE id = $1`,
+      [req.user.id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        code: "USER_NOT_FOUND",
+        message: "Profile not found.",
+      });
+    }
+
+    const user = result.rows[0];
+
+    return res.status(200).json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name || "",
+      },
+    });
+  } catch (err) {
+    console.error("Profile retrieval failed:", err.message);
+
+    return res.status(500).json({
+      code: "INTERNAL_ERROR",
+      message: "Unable to retrieve your profile right now.",
+    });
+  }
+});
+
+// Update the authenticated user's name and email.
+router.put("/profile", authMiddleware, async (req, res) => {
+  const { name, email } = req.body || {};
+
+  if (typeof name !== "string" || !name.trim() || name.trim().length > 255) {
+    return res.status(400).json({
+      code: "INVALID_NAME",
+      message: "Name must contain between 1 and 255 characters.",
+    });
+  }
+
+  if (
+    typeof email !== "string" ||
+    email.trim().length > 255 ||
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+  ) {
+    return res.status(400).json({
+      code: "INVALID_EMAIL",
+      message: "Enter a valid email address.",
+    });
+  }
+
+  try {
+    const normalizedName = name.trim();
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const result = await pool.query(
+      `UPDATE users
+       SET name = $1, email = $2
+       WHERE id = $3
+       RETURNING id, email, name`,
+      [normalizedName, normalizedEmail, req.user.id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        code: "USER_NOT_FOUND",
+        message: "Profile not found.",
+      });
+    }
+
+    const user = result.rows[0];
+
+    return res.status(200).json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name || "",
+      },
+    });
+  } catch (err) {
+    if (err.code === "23505") {
+      return res.status(409).json({
+        code: "EMAIL_EXISTS",
+        message: "An account with this email already exists.",
+      });
+    }
+
+    console.error("Profile update failed:", err.message);
+
+    return res.status(500).json({
+      code: "INTERNAL_ERROR",
+      message: "Unable to update your profile right now.",
+    });
+  }
+});
 
 // Logout: invalidate the current session
 router.post("/logout", authMiddleware, async (req, res) => {
