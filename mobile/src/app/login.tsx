@@ -227,6 +227,14 @@ export default function LoginScreen({ onAuthenticated }: { onAuthenticated?: () 
 
           <Pressable
             style={styles.registerButton}
+            onPress={() => router.push('/forgot-password' as never)}
+            disabled={loading}
+          >
+            <Text style={styles.registerText}>Forgot password?</Text>
+          </Pressable>
+
+          <Pressable
+            style={styles.registerButton}
             onPress={() => router.push('/register')}
             disabled={loading}
           >

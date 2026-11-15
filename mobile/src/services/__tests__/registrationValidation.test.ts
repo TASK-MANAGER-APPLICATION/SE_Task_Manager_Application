@@ -2,6 +2,7 @@ import {
   isValidEmail,
   isStrongPassword,
   validateRegistrationForm,
+  validateResetPasswordForm,
 } from '../registrationValidation';
 
 describe('isValidEmail', () => {
@@ -41,6 +42,19 @@ describe('isStrongPassword', () => {
 
   test('rejects a password without a special character', () => {
     expect(isStrongPassword('Password123')).toBe(false);
+  });
+});
+
+describe('validateResetPasswordForm', () => {
+  test('requires a strong password and confirmation', () => {
+    expect(validateResetPasswordForm('weak', 'different')).toEqual({
+      password: 'Password must be at least 8 characters and include uppercase, lowercase, a number, and a special character.',
+      confirmPassword: 'Passwords do not match.',
+    });
+  });
+
+  test('accepts matching strong passwords', () => {
+    expect(validateResetPasswordForm('Password123!', 'Password123!')).toEqual({});
   });
 });
 

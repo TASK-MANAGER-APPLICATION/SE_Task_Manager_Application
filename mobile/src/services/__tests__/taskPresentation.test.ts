@@ -32,6 +32,11 @@ describe('task filtering and sorting', () => {
     expect(filterAndSortTasks(tasks, {}, 'Priority', 'Descending').map((task) => task.priority)).toEqual(['High', 'Medium', 'Low']);
   });
 
+  test('sorts by status in either direction', () => {
+    expect(filterAndSortTasks(tasks, {}, 'Status', 'Ascending').map((task) => task.status)).toEqual(['Completed', 'Pending', 'Pending']);
+    expect(filterAndSortTasks(tasks, {}, 'Status', 'Descending').map((task) => task.status)).toEqual(['Pending', 'Pending', 'Completed']);
+  });
+
   test('sorts invalid or missing due dates last in either direction', () => {
     expect(filterAndSortTasks(tasks, {}, 'Due Date', 'Ascending').map((task) => task.id)).toEqual([1, 2, 3]);
   });

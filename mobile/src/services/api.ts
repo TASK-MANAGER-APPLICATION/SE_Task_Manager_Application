@@ -6,12 +6,13 @@ const DEFAULT_API_BASE_URL =
   Platform.OS === 'android'
     ? 'http://10.0.2.2:3000'
     : 'http://localhost:3000';
+const configuredApiBaseUrl =
+  process.env.EXPO_PUBLIC_API_BASE_URL || process.env.EXPO_PUBLIC_API_URL;
+if (process.env.NODE_ENV === 'production' && !configuredApiBaseUrl) {
+  throw new Error('EXPO_PUBLIC_API_BASE_URL must be configured for production builds.');
+}
 const API_BASE_URL =
-  (
-    process.env.EXPO_PUBLIC_API_BASE_URL ||
-    process.env.EXPO_PUBLIC_API_URL ||
-    DEFAULT_API_BASE_URL
-  ).replace(/\/+$/, '');
+  (configuredApiBaseUrl || DEFAULT_API_BASE_URL).replace(/\/+$/, '');
 
 export type User = {
   id: number | string;
@@ -82,7 +83,11 @@ async function request<T>(
 ): Promise<T> {
   const headers = new Headers(options.headers);
   const isLoginRequest = path === '/auth/login';
-  const session = isLoginRequest ? null : await getSession();
+  const isPublicAuthRequest =
+    isLoginRequest ||
+    path === '/auth/forgot-password' ||
+    path === '/auth/reset-password';
+  const session = isPublicAuthRequest ? null : await getSession();
 
   if (!headers.has('Content-Type') && options.body) {
     headers.set('Content-Type', 'application/json');
@@ -196,6 +201,20 @@ export async function login(
       email,
       password,
     }),
+  });
+}
+
+export async function requestPasswordReset(email: string): Promise<void> {
+  await request<void>('/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function resetPassword(token: string, newPassword: string): Promise<void> {
+  await request<void>('/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ token, newPassword }),
   });
 }
 

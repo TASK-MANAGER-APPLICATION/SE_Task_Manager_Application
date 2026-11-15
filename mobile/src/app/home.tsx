@@ -37,7 +37,7 @@ import { filterAndSortTasks, isTaskOverdue } from '../services/taskPresentation'
 
 type StatusFilter = 'All' | 'Pending' | 'Completed';
 type PriorityFilter = 'All' | 'Low' | 'Medium' | 'High';
-type SortField = 'None' | 'Due Date' | 'Priority' | 'Title' | 'Created Date';
+type SortField = 'Due Date' | 'Priority' | 'Title' | 'Status' | 'Created Date';
 type SortDirection = 'Ascending' | 'Descending';
 
 const TASK_PAGE_SIZE = 50;
@@ -48,9 +48,9 @@ export default function HomeScreen() {
   const [priorityFilter, setPriorityFilter] =
     useState<PriorityFilter>('All');
   const [categoryFilter, setCategoryFilter] = useState('All');
-  const [sortField, setSortField] = useState<SortField>('None');
+  const [sortField, setSortField] = useState<SortField>('Created Date');
   const [sortDirection, setSortDirection] =
-    useState<SortDirection>('Ascending');
+    useState<SortDirection>('Descending');
 
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
@@ -116,17 +116,14 @@ export default function HomeScreen() {
     categoryFilter !== 'All';
 
   const hasActiveSorting =
-    sortField !== 'None' || sortDirection !== 'Ascending';
+    sortField !== 'Created Date' || sortDirection !== 'Descending';
 
   const buildTaskQuery = useCallback((offset: number): GetTasksParams => {
-    const sortBy =
-      sortField === 'None'
+    const sortBy = sortField === 'Due Date'
+      ? 'due_at'
+      : sortField === 'Created Date'
         ? 'created_at'
-        : sortField === 'Due Date'
-          ? 'due_at'
-          : sortField === 'Created Date'
-            ? 'created_at'
-            : sortField.toLowerCase() as 'priority' | 'title';
+        : sortField.toLowerCase() as 'priority' | 'title' | 'status';
 
     return {
       ...(statusFilter !== 'All' ? { status: statusFilter } : {}),
@@ -137,12 +134,7 @@ export default function HomeScreen() {
           ? { categoryId: categoryFilter }
           : {}),
       sortBy,
-      order:
-        sortField === 'None'
-          ? 'desc'
-          : sortDirection === 'Ascending'
-            ? 'asc'
-            : 'desc',
+      order: sortDirection === 'Ascending' ? 'asc' : 'desc',
       limit: TASK_PAGE_SIZE,
       offset,
     };
@@ -179,8 +171,8 @@ export default function HomeScreen() {
   }
 
   function resetSorting() {
-    setSortField('None');
-    setSortDirection('Ascending');
+    setSortField('Created Date');
+    setSortDirection('Descending');
   }
 
   function renderFilterChip(
@@ -1117,7 +1109,7 @@ export default function HomeScreen() {
           <Text style={styles.filterLabel}>Sort by</Text>
           <View style={styles.filterOptions}>
             {(
-              ['Due Date', 'Priority', 'Title', 'Created Date'] as const
+              ['Due Date', 'Priority', 'Title', 'Status', 'Created Date'] as const
             ).map((field) =>
               renderFilterChip(
                 field,
