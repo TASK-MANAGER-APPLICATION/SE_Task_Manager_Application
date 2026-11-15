@@ -35,7 +35,9 @@ export function filterAndSortTasks(
     const categoryMatch =
       !filters.categoryId ||
       filters.categoryId === 'All' ||
-      String(task.category_id) === filters.categoryId;
+      (filters.categoryId === 'Uncategorized'
+        ? task.category_id === null || task.category_id === undefined
+        : String(task.category_id) === filters.categoryId);
     return statusMatch && priorityMatch && categoryMatch;
   });
 

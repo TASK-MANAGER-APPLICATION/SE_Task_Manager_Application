@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 
 import {
   ActivityIndicator,
@@ -19,21 +19,28 @@ import { useFocusEffect, router } from 'expo-router';
 
 import {
   ApiError,
+  Category,
   completeTask,
   createTask,
   deleteTask,
+  getCategories,
   getTasks,
+  getTaskSummary,
+  GetTasksParams,
   Task,
+  TaskSummary,
   updateTask,
 } from '../services/api';
 
-import { clearSession } from '../services/authStorage';
-import { calculateDashboardSummary, filterAndSortTasks, isTaskOverdue } from '../services/taskPresentation';
+import { CategoryPicker } from '../components/category-picker';
+import { filterAndSortTasks, isTaskOverdue } from '../services/taskPresentation';
 
 type StatusFilter = 'All' | 'Pending' | 'Completed';
 type PriorityFilter = 'All' | 'Low' | 'Medium' | 'High';
 type SortField = 'None' | 'Due Date' | 'Priority' | 'Title' | 'Created Date';
 type SortDirection = 'Ascending' | 'Descending';
+
+const TASK_PAGE_SIZE = 50;
 
 export default function HomeScreen() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -46,7 +53,26 @@ export default function HomeScreen() {
     useState<SortDirection>('Ascending');
 
   const [loading, setLoading] = useState(true);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const inFlightLoad = useRef<{
+    queryKey: string;
+    promise: Promise<void>;
+    requestSequence: number;
+  } | null>(null);
+  const listRequestSequence = useRef(0);
+  const activeQueryKey = useRef('');
+  const loadingMoreRef = useRef(false);
+  const inFlightLoadError = useRef({
+    title: 'Unable to load tasks',
+    message: 'Unable to load your tasks. Please try again.',
+  });
   const [refreshing, setRefreshing] = useState(false);
+  const [summary, setSummary] = useState<TaskSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [summaryError, setSummaryError] = useState('');
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [categoriesError, setCategoriesError] = useState('');
 
   const [error, setError] = useState('');
   const [errorTitle, setErrorTitle] = useState('Unable to load tasks');
@@ -73,20 +99,9 @@ export default function HomeScreen() {
   const [deletingTaskId, setDeletingTaskId] =
     useState<number | string | null>(null);
 
-  const summary = calculateDashboardSummary(tasks);
-  const totalCount = summary.total;
-  const completedCount = summary.completed;
-  const pendingCount = summary.pending;
-
-  const categoryOptions = Array.from(
-    new Set(
-      tasks.flatMap((task) =>
-        task.category_id === null || task.category_id === undefined
-          ? []
-          : [String(task.category_id)]
-      )
-    )
-  );
+  const totalCount = summary?.total;
+  const completedCount = summary?.completed;
+  const pendingCount = summary?.pending;
 
   const sortedTasks = filterAndSortTasks(
     tasks,
@@ -103,6 +118,60 @@ export default function HomeScreen() {
   const hasActiveSorting =
     sortField !== 'None' || sortDirection !== 'Ascending';
 
+  const buildTaskQuery = useCallback((offset: number): GetTasksParams => {
+    const sortBy =
+      sortField === 'None'
+        ? 'created_at'
+        : sortField === 'Due Date'
+          ? 'due_at'
+          : sortField === 'Created Date'
+            ? 'created_at'
+            : sortField.toLowerCase() as 'priority' | 'title';
+
+    return {
+      ...(statusFilter !== 'All' ? { status: statusFilter } : {}),
+      ...(priorityFilter !== 'All' ? { priority: priorityFilter } : {}),
+      ...(categoryFilter === 'Uncategorized'
+        ? { categoryId: 'uncategorized' }
+        : categoryFilter !== 'All'
+          ? { categoryId: categoryFilter }
+          : {}),
+      sortBy,
+      order:
+        sortField === 'None'
+          ? 'desc'
+          : sortDirection === 'Ascending'
+            ? 'asc'
+            : 'desc',
+      limit: TASK_PAGE_SIZE,
+      offset,
+    };
+  }, [categoryFilter, priorityFilter, sortDirection, sortField, statusFilter]);
+
+  const loadCategories = useCallback(async () => {
+    setCategoriesError('');
+    try {
+      const result = await getCategories();
+      setCategories(result.categories);
+      setCategoryFilter((currentFilter) =>
+        currentFilter === 'All' ||
+        currentFilter === 'Uncategorized' ||
+        result.categories.some((category) => String(category.id) === currentFilter)
+          ? currentFilter
+          : 'All'
+      );
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'SESSION_EXPIRED') {
+        return;
+      }
+      setCategoriesError(
+        err instanceof ApiError
+          ? err.message
+          : 'Unable to load categories. Please try again.'
+      );
+    }
+  }, []);
+
   function resetFilters() {
     setStatusFilter('All');
     setPriorityFilter('All');
@@ -117,11 +186,12 @@ export default function HomeScreen() {
   function renderFilterChip(
     label: string,
     selected: boolean,
-    onPress: () => void
+    onPress: () => void,
+    stableKey = label
   ) {
     return (
       <Pressable
-        key={label}
+        key={stableKey}
         accessibilityRole="button"
         accessibilityState={{ selected }}
         style={[
@@ -142,76 +212,156 @@ export default function HomeScreen() {
     );
   }
 
-  const handleSessionExpired = useCallback(() => {
-    clearSession().finally(() => {
-      if (Platform.OS === 'web') {
-        router.replace('/login');
-        return;
-      }
+  const loadTasks = useCallback(async (
+    showLoading = true,
+    loadErrorTitle = 'Unable to load tasks',
+    loadErrorMessage = 'Unable to load your tasks. Please try again.'
+  ) => {
+    const params = buildTaskQuery(0);
+    const queryKey = JSON.stringify(params);
+    activeQueryKey.current = queryKey;
+    if (inFlightLoad.current?.queryKey === queryKey) {
+      inFlightLoadError.current = {
+        title: loadErrorTitle,
+        message: loadErrorMessage,
+      };
+      await inFlightLoad.current.promise;
+      return;
+    }
 
-      Alert.alert(
-        'Session expired',
-        'Your session has expired. Please log in again.',
-        [
-          {
-            text: 'Login',
-            onPress: () => router.replace('/login'),
-          },
-        ]
-      );
-    });
-  }, []);
+    const requestSequence = ++listRequestSequence.current;
+    inFlightLoadError.current = {
+      title: loadErrorTitle,
+      message: loadErrorMessage,
+    };
 
-  const loadTasks = useCallback(async (showLoading = true) => {
     if (showLoading) {
       setLoading(true);
     }
 
+    setHasMore(false);
     setError('');
     setCanRetryError(true);
 
-    try {
-      const result = await getTasks({
-        sortBy: 'created_at',
-        order: 'desc',
-      });
+    const request = (async () => {
+      try {
+        const result = await getTasks(params);
+        if (requestSequence !== listRequestSequence.current) {
+          return;
+        }
 
-      setTasks(result.tasks);
-    } catch (err) {
-      if (
-        err instanceof ApiError &&
-        (err.code === 'SESSION_EXPIRED' || err.status === 401)
-      ) {
-        handleSessionExpired();
+        setTasks(result.tasks);
+        setHasMore(result.hasMore ?? result.tasks.length === TASK_PAGE_SIZE);
+      } catch (err) {
+        if (requestSequence !== listRequestSequence.current) {
+          return;
+        }
+
+        if (err instanceof ApiError && err.code === 'SESSION_EXPIRED') {
+          return;
+        }
+
+        if (err instanceof ApiError) {
+          setErrorTitle(inFlightLoadError.current.title);
+          setError(err.message);
+        } else {
+          setErrorTitle(inFlightLoadError.current.title);
+          setError(inFlightLoadError.current.message);
+        }
+      } finally {
+        if (showLoading && requestSequence === listRequestSequence.current) {
+          setLoading(false);
+        }
+      }
+    })();
+
+    const activeLoad = { queryKey, promise: request, requestSequence };
+    inFlightLoad.current = activeLoad;
+
+    try {
+      await request;
+    } finally {
+      if (inFlightLoad.current === activeLoad) {
+        inFlightLoad.current = null;
+      }
+    }
+  }, [buildTaskQuery]);
+
+  const loadMoreTasks = useCallback(async () => {
+    if (
+      loadingMoreRef.current ||
+      !hasMore
+    ) {
+      return;
+    }
+
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    const params = buildTaskQuery(tasks.length);
+    const queryKey = JSON.stringify({ ...params, offset: 0 });
+    if (queryKey !== activeQueryKey.current) {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+      return;
+    }
+
+    try {
+      const result = await getTasks(params);
+      if (queryKey !== activeQueryKey.current) {
         return;
       }
 
-      if (err instanceof ApiError) {
-        setErrorTitle('Unable to load tasks');
-        setError(err.message);
-      } else {
-        setErrorTitle('Unable to load tasks');
-        setError(
-          'Unable to load your tasks. Please try again.'
-        );
+      setTasks((current) => [...current, ...result.tasks]);
+      setHasMore(result.hasMore ?? result.tasks.length === TASK_PAGE_SIZE);
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'SESSION_EXPIRED') {
+        return;
       }
+
+      setErrorTitle('Unable to load more tasks');
+      setCanRetryError(true);
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : 'Unable to load more tasks. Please try again.'
+      );
     } finally {
-      if (showLoading) {
-        setLoading(false);
-      }
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
     }
-  }, [handleSessionExpired]);
+  }, [buildTaskQuery, hasMore, tasks.length]);
+
+  const loadSummary = useCallback(async () => {
+    setSummaryLoading(true);
+    setSummaryError('');
+
+    try {
+      setSummary(await getTaskSummary());
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'SESSION_EXPIRED') {
+        return;
+      }
+
+      setSummaryError(
+        err instanceof ApiError
+          ? err.message
+          : 'Unable to load dashboard statistics. Please try again.'
+      );
+    } finally {
+      setSummaryLoading(false);
+    }
+  }, []);
+
+  const refreshDashboard = useCallback(async (showLoading = false) => {
+    await Promise.all([loadTasks(showLoading), loadSummary()]);
+  }, [loadSummary, loadTasks]);
 
   function handleTaskError(
     err: unknown,
     title: string,
     fallback: string
   ) {
-    if (
-      err instanceof ApiError &&
-      (err.code === 'SESSION_EXPIRED' || err.status === 401)
-    ) {
-      handleSessionExpired();
+    if (err instanceof ApiError && err.code === 'SESSION_EXPIRED') {
       return;
     }
 
@@ -223,7 +373,28 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       loadTasks(true);
+      return () => {
+        const invalidatedSequence = ++listRequestSequence.current;
+        if (
+          inFlightLoad.current &&
+          inFlightLoad.current.requestSequence < invalidatedSequence
+        ) {
+          inFlightLoad.current = null;
+        }
+      };
     }, [loadTasks])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      loadSummary();
+    }, [loadSummary])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadCategories();
+    }, [loadCategories])
   );
 
   async function handleRefresh() {
@@ -233,31 +404,14 @@ export default function HomeScreen() {
     setCanRetryError(true);
 
     try {
-      const result = await getTasks({
-        sortBy: 'created_at',
-        order: 'desc',
-      });
-
-      setTasks(result.tasks);
-      setError('');
-    } catch (err) {
-      if (
-        err instanceof ApiError &&
-        (err.code === 'SESSION_EXPIRED' || err.status === 401)
-      ) {
-        handleSessionExpired();
-        return;
-      }
-
-      if (err instanceof ApiError) {
-        setErrorTitle('Unable to refresh tasks');
-        setError(err.message);
-      } else {
-        setErrorTitle('Unable to refresh tasks');
-        setError(
+      await Promise.all([
+        loadTasks(
+          false,
+          'Unable to refresh tasks',
           'Unable to refresh your tasks. Please try again.'
-        );
-      }
+        ),
+        loadSummary(),
+      ]);
     } finally {
       setRefreshing(false);
     }
@@ -278,7 +432,7 @@ export default function HomeScreen() {
     setError('');
 
     try {
-      const response = await createTask({
+      await createTask({
         title,
         ...(newDescription.trim()
           ? { description: newDescription.trim() }
@@ -292,7 +446,7 @@ export default function HomeScreen() {
           : {}),
       });
 
-      setTasks((current) => [response.task, ...current]);
+      await refreshDashboard();
 
       setNewTitle('');
       setNewDescription('');
@@ -320,15 +474,8 @@ export default function HomeScreen() {
     setCompletingTaskId(task.id);
 
     try {
-      const updatedTask = await completeTask(task.id);
-
-      setTasks((current) =>
-        current.map((currentTask) =>
-          currentTask.id === updatedTask.task.id
-            ? updatedTask.task
-            : currentTask
-        )
-      );
+      await completeTask(task.id);
+      await refreshDashboard();
 
       setError('');
     } catch (err) {
@@ -336,7 +483,7 @@ export default function HomeScreen() {
         err instanceof ApiError &&
         err.code === 'ALREADY_COMPLETED'
       ) {
-        await loadTasks(false);
+        await refreshDashboard();
         return;
       }
 
@@ -383,7 +530,7 @@ export default function HomeScreen() {
     setSavingTask(true);
 
     try {
-      const result = await updateTask(task.id, {
+      await updateTask(task.id, {
         title,
         description: editingDescription.trim() || null,
         due_at: editingDueAt.trim() || null,
@@ -391,12 +538,8 @@ export default function HomeScreen() {
         category_id: editingCategoryId.trim() || null,
       });
 
-      setTasks((current) =>
-        current.map((currentTask) =>
-          currentTask.id === result.task.id ? result.task : currentTask
-        )
-      );
       setEditingTaskId(null);
+      await refreshDashboard();
       setError('');
     } catch (err) {
       handleTaskError(
@@ -415,12 +558,10 @@ export default function HomeScreen() {
 
     try {
       await deleteTask(task.id);
-      setTasks((current) =>
-        current.filter((currentTask) => currentTask.id !== task.id)
-      );
       if (editingTaskId === task.id) {
         setEditingTaskId(null);
       }
+      await refreshDashboard();
       setError('');
     } catch (err) {
       handleTaskError(
@@ -469,6 +610,15 @@ export default function HomeScreen() {
     }
 
     return date.toLocaleDateString();
+  }
+
+  function getCategoryName(categoryId: Task['category_id']) {
+    if (categoryId === null || categoryId === undefined) {
+      return null;
+    }
+    return categories.find(
+      (category) => String(category.id) === String(categoryId)
+    )?.name ?? `Category ${categoryId}`;
   }
 
   function getPriorityStyle(
@@ -569,13 +719,12 @@ export default function HomeScreen() {
                   Priority: {editingPriority} (tap to change)
                 </Text>
               </Pressable>
-              <TextInput
-                style={[styles.input, styles.formField]}
-                placeholder="Category ID (optional)"
-                value={editingCategoryId}
-                onChangeText={setEditingCategoryId}
-                editable={!savingTask}
-                autoCapitalize="none"
+              <Text style={styles.formLabel}>Category</Text>
+              <CategoryPicker
+                categories={categories}
+                categoryId={editingCategoryId}
+                onChange={setEditingCategoryId}
+                disabled={savingTask}
               />
               <View style={styles.taskActions}>
                 <Pressable
@@ -626,8 +775,8 @@ export default function HomeScreen() {
               {isTaskOverdue(item) ? (
                 <Text accessibilityLabel="Overdue task" style={styles.overdueLabel}>Overdue</Text>
               ) : null}
-              {item.category_id !== null && item.category_id !== undefined ? (
-                <Text style={styles.taskMeta}>Category ID: {item.category_id}</Text>
+              {getCategoryName(item.category_id) ? (
+                <Text style={styles.taskMeta}>{getCategoryName(item.category_id)}</Text>
               ) : null}
 
               <View style={styles.taskFooter}>
@@ -671,6 +820,17 @@ export default function HomeScreen() {
   }
 
   function renderHeader() {
+    const completedAngle = summary && summary.total > 0
+      ? (summary.statusCounts.Completed / summary.total) * 360
+      : 0;
+    const maximumPriorityCount = summary
+      ? Math.max(
+          summary.priorityCounts.Low,
+          summary.priorityCounts.Medium,
+          summary.priorityCounts.High
+        )
+      : 0;
+
     return (
       <View>
         <Text style={styles.eyebrow}>
@@ -697,7 +857,7 @@ export default function HomeScreen() {
             </Text>
 
             <Text style={styles.summaryNumber}>
-              {totalCount}
+              {summaryLoading ? '…' : totalCount ?? '—'}
             </Text>
           </View>
 
@@ -712,7 +872,7 @@ export default function HomeScreen() {
             </Text>
 
             <Text style={styles.summaryNumber}>
-              {pendingCount}
+              {summaryLoading ? '…' : pendingCount ?? '—'}
             </Text>
           </View>
 
@@ -727,31 +887,96 @@ export default function HomeScreen() {
             </Text>
 
             <Text style={styles.summaryNumber}>
-              {completedCount}
+              {summaryLoading ? '…' : completedCount ?? '—'}
             </Text>
           </View>
           <View style={[styles.summaryCard, styles.overdueCard]}>
             <Text style={styles.summaryLabel}>OVERDUE TASKS</Text>
-            <Text style={styles.summaryNumber}>{summary.overdue}</Text>
+            <Text style={styles.summaryNumber}>
+              {summaryLoading ? '…' : summary?.overdue ?? '—'}
+            </Text>
           </View>
         </View>
 
         <View style={styles.distributionCard}>
           <Text style={styles.filtersTitle}>Task distribution</Text>
-          {totalCount === 0 ? (
+          {summaryLoading && !summary ? (
+            <Text style={styles.emptyDashboardText}>
+              Loading dashboard statistics...
+            </Text>
+          ) : null}
+          {summaryError ? (
+            <View>
+              <Text accessibilityRole="alert" style={styles.emptyDashboardText}>
+                {summaryError}
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                style={styles.retryButton}
+                onPress={() => void loadSummary()}
+              >
+                <Text style={styles.retryButtonText}>Retry statistics</Text>
+              </Pressable>
+            </View>
+          ) : null}
+          {summary && summary.total === 0 && !summaryLoading ? (
             <Text style={styles.emptyDashboardText}>No task data yet. Create a task to see your summary.</Text>
           ) : null}
-          <Text style={styles.distributionText}>Status: Pending {summary.statusCounts.Pending} · Completed {summary.statusCounts.Completed}</Text>
-          <View style={styles.distributionTrack}>
-            <View style={[styles.pendingBar, { flex: summary.statusCounts.Pending || 0.001 }]} />
-            <View style={[styles.completedBar, { flex: summary.statusCounts.Completed || 0.001 }]} />
-          </View>
-          <Text style={styles.distributionText}>Priority: Low {summary.priorityCounts.Low} · Medium {summary.priorityCounts.Medium} · High {summary.priorityCounts.High}</Text>
-          <View style={styles.distributionTrack}>
-            <View style={[styles.lowBar, { flex: summary.priorityCounts.Low || 0.001 }]} />
-            <View style={[styles.mediumBar, { flex: summary.priorityCounts.Medium || 0.001 }]} />
-            <View style={[styles.highBar, { flex: summary.priorityCounts.High || 0.001 }]} />
-          </View>
+          {summary && summary.total > 0 ? (
+            <>
+              <View style={styles.chartsRow}>
+                <View style={styles.chartSection}>
+                  <Text style={styles.distributionText}>Tasks by status</Text>
+                  <View
+                    accessibilityRole="image"
+                    accessibilityLabel={`Status pie chart: ${summary.statusCounts.Pending} pending, ${summary.statusCounts.Completed} completed`}
+                    style={[
+                      styles.statusPie,
+                      {
+                        experimental_backgroundImage:
+                          `conic-gradient(#45A477 0deg ${completedAngle}deg, #E4A23B ${completedAngle}deg 360deg)`,
+                      },
+                    ]}
+                  />
+                  <Text style={styles.chartLegend}>
+                    Pending {summary.statusCounts.Pending} · Completed {summary.statusCounts.Completed}
+                  </Text>
+                </View>
+                <View style={styles.chartSection}>
+                  <Text style={styles.distributionText}>Tasks by priority</Text>
+                  <View
+                    accessibilityRole="image"
+                    accessibilityLabel={`Priority bar chart: Low ${summary.priorityCounts.Low}, Medium ${summary.priorityCounts.Medium}, High ${summary.priorityCounts.High}`}
+                    style={styles.priorityChart}
+                  >
+                    {([
+                      ['Low', summary.priorityCounts.Low, styles.lowBar],
+                      ['Medium', summary.priorityCounts.Medium, styles.mediumBar],
+                      ['High', summary.priorityCounts.High, styles.highBar],
+                    ] as const).map(([priority, count, barStyle]) => (
+                      <View key={priority} style={styles.priorityColumn}>
+                        <Text style={styles.chartCount}>{count}</Text>
+                        <View style={styles.priorityBarTrack}>
+                          <View
+                            style={[
+                              styles.priorityColumnBar,
+                              barStyle,
+                              {
+                                height: maximumPriorityCount
+                                  ? `${(count / maximumPriorityCount) * 100}%`
+                                  : 0,
+                              },
+                            ]}
+                          />
+                        </View>
+                        <Text style={styles.chartLegend}>{priority}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              </View>
+            </>
+          ) : null}
         </View>
 
         <View style={styles.filtersCard}>
@@ -795,25 +1020,40 @@ export default function HomeScreen() {
             )}
           </View>
 
-          {categoryOptions.length > 0 ? (
-            <>
-              <Text style={styles.filterLabel}>Category</Text>
-              <View style={styles.filterOptions}>
-                {renderFilterChip(
-                  'All',
-                  categoryFilter === 'All',
-                  () => setCategoryFilter('All')
-                )}
-                {categoryOptions.map((categoryId) =>
-                  renderFilterChip(
-                    `Category ${categoryId}`,
-                    categoryFilter === categoryId,
-                    () => setCategoryFilter(categoryId)
-                  )
-                )}
-              </View>
-            </>
+          {categoriesError ? (
+            <View>
+              <Text accessibilityRole="alert" style={styles.categoryError}>{categoriesError}</Text>
+              <Pressable accessibilityRole="button" onPress={() => void loadCategories()}>
+                <Text style={styles.categoryRetry}>Retry categories</Text>
+              </Pressable>
+            </View>
           ) : null}
+
+          <Text style={styles.filterLabel}>Category</Text>
+          <View style={styles.filterOptions}>
+            {renderFilterChip(
+              'All categories',
+              categoryFilter === 'All',
+              () => setCategoryFilter('All'),
+              'all-categories'
+            )}
+            {renderFilterChip(
+              'Uncategorized',
+              categoryFilter === 'Uncategorized',
+              () => setCategoryFilter('Uncategorized'),
+              'uncategorized'
+            )}
+            {categories.map((category) =>
+              renderFilterChip(
+                category.name === 'Uncategorized'
+                  ? 'Uncategorized category'
+                  : category.name,
+                categoryFilter === String(category.id),
+                () => setCategoryFilter(String(category.id)),
+                String(category.id)
+              )
+            )}
+          </View>
         </View>
 
         <View style={styles.filtersCard}>
@@ -924,15 +1164,16 @@ export default function HomeScreen() {
               </Text>
             </Pressable>
 
-            <TextInput
-              style={[styles.input, styles.formField]}
-              placeholder="Category ID (optional)"
-              placeholderTextColor="#8991A5"
-              value={newCategoryId}
-              onChangeText={setNewCategoryId}
-              editable={!addingTask}
-              autoCapitalize="none"
+            <Text style={styles.formLabel}>Category</Text>
+            <CategoryPicker
+              categories={categories}
+              categoryId={newCategoryId}
+              onChange={setNewCategoryId}
+              disabled={addingTask}
             />
+            {categoriesError ? (
+              <Text accessibilityRole="alert" style={styles.categoryError}>{categoriesError}</Text>
+            ) : null}
 
             <Pressable
               style={[
@@ -968,7 +1209,13 @@ export default function HomeScreen() {
               <Pressable
                 accessibilityRole="button"
                 style={styles.retryButton}
-                onPress={() => loadTasks(true)}
+                onPress={() => {
+                  if (errorTitle === 'Unable to load more tasks') {
+                    void loadMoreTasks();
+                  } else {
+                    void loadTasks(true);
+                  }
+                }}
               >
                 <Text style={styles.retryButtonText}>
                   Retry
@@ -978,27 +1225,6 @@ export default function HomeScreen() {
           </View>
         ) : null}
       </View>
-    );
-  }
-
-  if (loading) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <StatusBar
-          barStyle="dark-content"
-        />
-
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator
-            size="large"
-            color="#5968D8"
-          />
-
-          <Text style={styles.loadingText}>
-            Loading your tasks...
-          </Text>
-        </View>
-      </SafeAreaView>
     );
   }
 
@@ -1023,10 +1249,26 @@ export default function HomeScreen() {
             onRefresh={handleRefresh}
           />
         }
+        initialNumToRender={12}
+        maxToRenderPerBatch={12}
+        windowSize={7}
+        removeClippedSubviews={Platform.OS !== 'web'}
+        onEndReached={() => void loadMoreTasks()}
+        onEndReachedThreshold={0.5}
         ListEmptyComponent={
-          !error ? (
+          loading || summaryLoading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator
+                size="large"
+                color="#5968D8"
+              />
+              <Text style={styles.loadingText}>
+                Loading your tasks...
+              </Text>
+            </View>
+          ) : !error ? (
             <View style={styles.emptyCard}>
-              {tasks.length === 0 ? (
+              {summary?.total === 0 || !hasActiveFilters ? (
                 <>
                   <Text style={styles.emptyTitle}>No tasks yet</Text>
                   <Text style={styles.emptyText}>
@@ -1052,13 +1294,24 @@ export default function HomeScreen() {
             </View>
           ) : undefined
         }
-        ListFooterComponent={
-          tasks.length > 0 ? (
+        ListFooterComponent={sortedTasks.length > 0 ? (
+          <View style={styles.listFooter}>
+            {loadingMore ? (
+              <ActivityIndicator size="small" color="#5968D8" />
+            ) : hasMore ? (
+              <Pressable
+                accessibilityRole="button"
+                style={styles.loadMoreButton}
+                onPress={() => void loadMoreTasks()}
+              >
+                <Text style={styles.loadMoreButtonText}>Load more tasks</Text>
+              </Pressable>
+            ) : null}
             <Text style={styles.footer}>
               Small steps lead to big achievements.
             </Text>
-          ) : undefined
-        }
+          </View>
+        ) : undefined}
         ItemSeparatorComponent={() => (
           <View style={styles.separator} />
         )}
@@ -1162,9 +1415,15 @@ const styles = StyleSheet.create({
 
   distributionText: { color: '#626982', fontSize: 12, marginTop: 12 },
   emptyDashboardText: { color: '#777D91', fontSize: 13, marginTop: 8, lineHeight: 20 },
-  distributionTrack: { flexDirection: 'row', height: 10, overflow: 'hidden', borderRadius: 5, backgroundColor: '#EDF0F6', marginTop: 6 },
-  pendingBar: { backgroundColor: '#E4A23B' },
-  completedBar: { backgroundColor: '#45A477' },
+  chartsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 20, marginTop: 6 },
+  chartSection: { flex: 1, minWidth: 180 },
+  statusPie: { width: 120, height: 120, borderRadius: 60, marginTop: 12 },
+  chartLegend: { color: '#626982', fontSize: 12, marginTop: 6 },
+  priorityChart: { height: 150, flexDirection: 'row', alignItems: 'stretch', gap: 12, marginTop: 8 },
+  priorityColumn: { flex: 1, alignItems: 'center', justifyContent: 'flex-end' },
+  chartCount: { color: '#626982', fontSize: 12, fontWeight: '700' },
+  priorityBarTrack: { flex: 1, width: '100%', maxWidth: 52, justifyContent: 'flex-end', marginTop: 4, backgroundColor: '#EDF0F6', borderRadius: 5, overflow: 'hidden' },
+  priorityColumnBar: { width: '100%', borderRadius: 5 },
   lowBar: { backgroundColor: '#45A477' },
   mediumBar: { backgroundColor: '#E4A23B' },
   highBar: { backgroundColor: '#C75050' },
@@ -1224,6 +1483,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     marginTop: 12,
+    marginBottom: 7,
+  },
+
+  formLabel: {
+    color: '#626982',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 10,
     marginBottom: 7,
   },
 
@@ -1321,6 +1588,18 @@ const styles = StyleSheet.create({
 
   formField: {
     marginTop: 10,
+  },
+
+  categoryError: {
+    color: '#B42318',
+    fontSize: 13,
+    marginTop: 8,
+  },
+
+  categoryRetry: {
+    color: '#5968D8',
+    fontWeight: '700',
+    marginTop: 6,
   },
 
   priorityPicker: {
@@ -1565,6 +1844,28 @@ const styles = StyleSheet.create({
 
   separator: {
     height: 11,
+  },
+
+  listFooter: {
+    alignItems: 'center',
+    paddingBottom: 8,
+  },
+
+  loadMoreButton: {
+    minHeight: 48,
+    minWidth: 140,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+    paddingHorizontal: 16,
+    borderRadius: 9,
+    backgroundColor: '#5968D8',
+  },
+
+  loadMoreButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
   },
 
   footer: {

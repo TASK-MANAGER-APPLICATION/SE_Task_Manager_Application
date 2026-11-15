@@ -13,9 +13,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 
-import { ApiError, completeTask, deleteTask, getTasks, Task, updateTask } from '../../services/api';
-import { clearSession } from '../../services/authStorage';
+import { ApiError, Category, completeTask, deleteTask, getCategories, getTask, Task, updateTask } from '../../services/api';
 import { validateTaskForm } from '../../services/taskFormValidation';
+import { CategoryPicker } from '../../components/category-picker';
 
 function displayDate(value: string | null | undefined) {
   if (!value) return 'Not set';
@@ -40,24 +40,16 @@ export default function TaskDetailsScreen() {
   const [dueAt, setDueAt] = useState('');
   const [priority, setPriority] = useState('Medium');
   const [categoryId, setCategoryId] = useState('');
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [categoryError, setCategoryError] = useState('');
   const [fieldError, setFieldError] = useState('');
-
-  const handleSessionExpired = useCallback(async () => {
-    await clearSession();
-    router.replace('/login');
-  }, []);
 
   const loadTask = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const result = await getTasks();
-      const found = result.tasks.find((item) => String(item.id) === String(id));
-      if (!found) {
-        setTask(null);
-        setError('This task could not be found.');
-        return;
-      }
+      const result = await getTask(id);
+      const found = result.task;
       setTask(found);
       setTitle(found.title);
       setDescription(found.description ?? '');
@@ -65,20 +57,44 @@ export default function TaskDetailsScreen() {
       setPriority(found.priority ?? 'Medium');
       setCategoryId(found.category_id == null ? '' : String(found.category_id));
     } catch (cause) {
-      if (cause instanceof ApiError && (cause.code === 'SESSION_EXPIRED' || cause.status === 401)) {
-        await handleSessionExpired();
+      if (cause instanceof ApiError && cause.code === 'SESSION_EXPIRED') {
+        return;
       } else {
         setError(cause instanceof ApiError ? cause.message : 'Unable to load this task. Please try again.');
       }
     } finally {
       setLoading(false);
     }
-  }, [handleSessionExpired, id]);
+  }, [id]);
+
+  const loadCategories = useCallback(async () => {
+    setCategoryError('');
+    try {
+      const result = await getCategories();
+      setCategories(result.categories);
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.code === 'SESSION_EXPIRED') {
+        return;
+      }
+      setCategoryError(
+        cause instanceof ApiError
+          ? cause.message
+          : 'Unable to load categories. Please try again.'
+      );
+    }
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => { void loadTask(); }, 0);
     return () => clearTimeout(timer);
   }, [loadTask]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void loadCategories();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [loadCategories]);
 
   async function saveTask() {
     if (!task || saving) return;
@@ -108,8 +124,8 @@ export default function TaskDetailsScreen() {
       setCategoryId(result.task.category_id == null ? '' : String(result.task.category_id));
       setEditing(false);
     } catch (cause) {
-      if (cause instanceof ApiError && (cause.code === 'SESSION_EXPIRED' || cause.status === 401)) {
-        await handleSessionExpired();
+      if (cause instanceof ApiError && cause.code === 'SESSION_EXPIRED') {
+        return;
       } else {
         setError(cause instanceof ApiError ? cause.message : 'Unable to save this task. Please try again.');
       }
@@ -128,8 +144,8 @@ export default function TaskDetailsScreen() {
     } catch (cause) {
       if (cause instanceof ApiError && cause.code === 'ALREADY_COMPLETED') {
         await loadTask();
-      } else if (cause instanceof ApiError && (cause.code === 'SESSION_EXPIRED' || cause.status === 401)) {
-        await handleSessionExpired();
+      } else if (cause instanceof ApiError && cause.code === 'SESSION_EXPIRED') {
+        return;
       } else {
         setError(cause instanceof ApiError ? cause.message : 'Unable to complete this task. Please try again.');
       }
@@ -146,8 +162,8 @@ export default function TaskDetailsScreen() {
       await deleteTask(task.id);
       router.replace('/home');
     } catch (cause) {
-      if (cause instanceof ApiError && (cause.code === 'SESSION_EXPIRED' || cause.status === 401)) {
-        await handleSessionExpired();
+      if (cause instanceof ApiError && cause.code === 'SESSION_EXPIRED') {
+        return;
       } else {
         setError(cause instanceof ApiError ? cause.message : 'Unable to delete this task. Please try again.');
       }
@@ -201,9 +217,14 @@ export default function TaskDetailsScreen() {
             <TextInput accessibilityLabel="Due date" style={styles.input} value={dueAt} onChangeText={setDueAt} autoCapitalize="none" editable={!saving} />
             <Text style={styles.label}>Priority</Text>
             <View style={styles.options}>{(['Low', 'Medium', 'High'] as const).map((option) => <Pressable key={option} accessibilityRole="radio" accessibilityState={{ selected: priority === option }} style={[styles.option, priority === option && styles.optionSelected]} onPress={() => setPriority(option)} disabled={saving}><Text style={[styles.optionText, priority === option && styles.optionTextSelected]}>{option}</Text></Pressable>)}</View>
-            <Text style={styles.label}>Category ID</Text>
-            <TextInput accessibilityLabel="Category ID" style={styles.input} value={categoryId} onChangeText={setCategoryId} keyboardType="numeric" editable={!saving} />
-            <Text style={styles.muted}>Category ID is supported on tasks; category management is not available in the current API.</Text>
+            <Text style={styles.label}>Category</Text>
+            <CategoryPicker categories={categories} categoryId={categoryId} onChange={setCategoryId} disabled={saving} />
+            {categoryError ? (
+              <View>
+                <Text accessibilityRole="alert" style={styles.error}>{categoryError}</Text>
+                <Pressable accessibilityRole="button" onPress={() => void loadCategories()}><Text style={styles.retryText}>Retry categories</Text></Pressable>
+              </View>
+            ) : categories.length === 0 ? <Text style={styles.muted}>No categories yet. You can manage them from Profile.</Text> : null}
             <Pressable accessibilityRole="button" style={[styles.button, saving && styles.disabled]} onPress={() => void saveTask()} disabled={saving}>{saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>Save Changes</Text>}</Pressable>
             <Pressable accessibilityRole="button" style={styles.secondaryButton} onPress={() => { setTitle(task.title); setDescription(task.description ?? ''); setDueAt(task.due_at ?? ''); setPriority(task.priority ?? 'Medium'); setCategoryId(task.category_id == null ? '' : String(task.category_id)); setFieldError(''); setEditing(false); }} disabled={saving}><Text style={styles.secondaryText}>Cancel</Text></Pressable>
           </View>
@@ -215,7 +236,7 @@ export default function TaskDetailsScreen() {
             <Text style={styles.label}>Priority</Text><Text style={[styles.value, task.priority === 'High' && styles.highPriority]}>{task.priority || 'Medium'}</Text>
             <Text style={styles.label}>Due date</Text><Text style={styles.value}>{displayDate(task.due_at)}</Text>
             {isOverdue(task) ? <Text accessibilityLabel="Overdue task" style={styles.overdue}>Overdue</Text> : null}
-            <Text style={styles.label}>Category ID</Text><Text style={styles.value}>{task.category_id ?? 'None'}</Text>
+            <Text style={styles.label}>Category</Text><Text style={styles.value}>{task.category_id == null ? 'Uncategorized' : categories.find((category) => String(category.id) === String(task.category_id))?.name ?? `Category ${task.category_id}`}</Text>
             <Text style={styles.label}>Reminder sent</Text><Text style={styles.value}>{task.reminder_sent == null ? 'Unknown' : task.reminder_sent ? 'Yes' : 'No'}</Text>
             <Text style={styles.label}>Created</Text><Text style={styles.value}>{displayDate(task.created_at)}</Text>
             <Text style={styles.label}>Last updated</Text><Text style={styles.value}>{displayDate(task.updated_at)}</Text>
@@ -258,6 +279,7 @@ const styles = StyleSheet.create({
   deleteText: { color: '#FFFFFF', fontWeight: '700' },
   disabled: { opacity: 0.6 },
   muted: { color: '#777D91', fontSize: 12, marginTop: 6 },
+  retryText: { color: '#5968D8', fontWeight: '700', marginTop: 7 },
   error: { color: '#B42318', fontSize: 14, marginVertical: 8 },
   overdue: { color: '#B42318', fontWeight: '800', marginTop: 7 },
   highPriority: { color: '#B42318', fontWeight: '800' },
