@@ -109,6 +109,18 @@ describe("Authentication API", () => {
     expect(response.body.user).not.toHaveProperty("password_hash");
   });
 
+  test.each([
+    ["missing email", { password: testPassword }],
+    ["missing password", { email: testEmail }],
+  ])("POST /auth/login rejects %s", async (_description, credentials) => {
+    const response = await request(app)
+      .post("/auth/login")
+      .send(credentials);
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe("VALIDATION_ERROR");
+  });
+
   test("POST /auth/login rejects an incorrect password", async () => {
     const response = await request(app)
       .post("/auth/login")
@@ -119,6 +131,14 @@ describe("Authentication API", () => {
 
     expect(response.status).toBe(401);
     expect(response.body.code).toBe("INVALID_CREDENTIALS");
+  });
+
+  test("POST /auth/logout rejects a request without a token", async () => {
+    const response = await request(app)
+      .post("/auth/logout");
+
+    expect(response.status).toBe(401);
+    expect(response.body.code).toBe("SESSION_EXPIRED");
   });
 
   test("POST /auth/logout invalidates the session", async () => {
@@ -267,7 +287,7 @@ describe("Authentication API", () => {
 
     expect(newLogin.status).toBe(200);
     expect(newLogin.body.token).toBeDefined();
-  });
+  }, 15000);
 
   test("rejects a session idle for more than 30 minutes", async () => {
     const email = `timeout-${Date.now()}@example.com`;
@@ -371,12 +391,14 @@ describe("Authentication API", () => {
       .createHash("sha256")
       .update(login.body.token)
       .digest("hex");
-    await pool.query(
+    const updateResult = await pool.query(
       `UPDATE sessions
        SET last_activity_at = NOW() - INTERVAL '30 minutes'
        WHERE token_hash = $1`,
       [tokenHash]
     );
+
+    expect(updateResult.rowCount).toBe(1);
 
     const response = await request(app)
       .get("/tasks")

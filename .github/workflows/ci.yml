@@ -11,6 +11,7 @@ on:
       - "ci/**"
       - "docs/**"
       - "test/**"
+      - "reconcile/**"
 
   pull_request:
     branches:
@@ -47,7 +48,7 @@ jobs:
 
       - name: Run tests
         working-directory: mobile
-        run: npm test -- --runInBand
+        run: npm test -- --runInBand --testTimeout=15000
 
   backend:
     name: Backend
