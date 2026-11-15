@@ -220,6 +220,66 @@ export async function changePassword(
   });
 }
 
+export async function getProfile(): Promise<{ user: User }> {
+  const result = await request<unknown>('/auth/profile');
+
+  if (
+    !isRecord(result) ||
+    !isRecord(result.user) ||
+    (typeof result.user.id !== 'number' &&
+      typeof result.user.id !== 'string') ||
+    typeof result.user.email !== 'string' ||
+    typeof result.user.name !== 'string'
+  ) {
+    throw new ApiError(
+      'The server returned an invalid profile. Please try again.',
+      502,
+      'INVALID_RESPONSE'
+    );
+  }
+
+  return {
+    user: {
+      id: result.user.id,
+      email: result.user.email,
+      name: result.user.name,
+    },
+  };
+}
+
+export async function updateProfile(
+  name: string,
+  email: string
+): Promise<{ user: User }> {
+  const result = await request<unknown>('/auth/profile', {
+    method: 'PUT',
+    body: JSON.stringify({ name, email }),
+  });
+
+  if (
+    !isRecord(result) ||
+    !isRecord(result.user) ||
+    (typeof result.user.id !== 'number' &&
+      typeof result.user.id !== 'string') ||
+    typeof result.user.email !== 'string' ||
+    typeof result.user.name !== 'string'
+  ) {
+    throw new ApiError(
+      'The server returned an invalid profile. Please try again.',
+      502,
+      'INVALID_RESPONSE'
+    );
+  }
+
+  return {
+    user: {
+      id: result.user.id,
+      email: result.user.email,
+      name: result.user.name,
+    },
+  };
+}
+
 export type GetTasksParams = {
   status?: string;
   priority?: string;

@@ -1,4 +1,3 @@
-
 const request = require("supertest");
 const app = require("../app");
 const pool = require("../db");
@@ -416,6 +415,7 @@ describe("Tasks API", () => {
       priority: "High",
     });
   });
+
   test("lists the authenticated user's tasks", async () => {
     const response = await request(app)
       .get("/tasks")
@@ -764,7 +764,6 @@ describe("Tasks API", () => {
   });
 
   test("preserves tasks across refresh, logout, login and backend restart", async () => {
-    jest.setTimeout(30000);
     const port = await getAvailablePort();
     const baseUrl = `http://127.0.0.1:${port}`;
     let server = await startBackendServer(port);
@@ -808,7 +807,7 @@ describe("Tasks API", () => {
     } finally {
       await stopBackendServer(server);
     }
-  });
+  }, 30000);
 
   test("records timestamps for task creation, editing, completion and deletion", async () => {
     const startedAt = Date.now();
