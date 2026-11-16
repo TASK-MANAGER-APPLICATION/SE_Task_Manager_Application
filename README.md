@@ -27,7 +27,7 @@ Every task needs a title. Everything else, a description, due date, priority, an
 Users create their own categories and assign tasks to them. Tasks can be filtered by status, priority, category, or due date, and sorted the same way.
 
 **Reminders**
-The system checks due dates and sends a push notification 24 hours before a task is due, so nothing depends purely on memory.
+Due-date push notifications are listed in the project backlog but are not available in the current application.
 
 **Dashboard**
 A summary view shows task counts by status, a pie chart for status distribution, and a bar chart for tasks by priority (Low, Medium, High), so users can see where things stand without opening every task individually.
@@ -37,11 +37,11 @@ Passwords are hashed, never stored as plain text. Task features are only reachab
 
 ## Tech Stack
 
-- **Client**: Android mobile application (touch-based UI, all screens designed for mobile form factor)
-- **Backend**: JavaScript (React.js + Node.js) or Python (Django), depending on final implementation choice
-- **Database**: Persistent relational or document store for users, tasks, and categories
-- **Email service**: Handles password reset and verification messages
-- **Push notification service**: Delivers due-date reminders to the user's device
+- **Client**: Expo React Native application with Expo Router
+- **Backend**: Node.js and Express
+- **Database**: PostgreSQL with versioned SQL migrations
+- **Email service**: Configurable SMTP delivery for password reset
+- **Build**: Expo EAS internal Android APK profile
 
 ## Screens
 
@@ -101,7 +101,28 @@ Requirements and design are defined through the Proposal and SRS documents. Impl
 
 ## Getting Started
 
-Setup instructions will be added once the implementation stack (Node.js/Express or Django) is finalized and the initial repository structure is in place.
+Requirements: Node.js 20 or newer, npm, and a local PostgreSQL database for
+development. Copy `backend/.env.example` to `backend/.env`, set `DATABASE_URL`
+to the local database, then run from `backend`:
+
+```powershell
+npm ci
+npm run migrate
+npm test
+npm start
+```
+
+For mobile development, copy `mobile/.env.example` to `mobile/.env`, set
+`EXPO_PUBLIC_API_BASE_URL` to the backend address reachable from the device,
+then run from `mobile`:
+
+```powershell
+npm ci
+npm start
+```
+
+See [deployment preparation](docs/DEPLOYMENT.md) for Render, Neon, SMTP, and EAS
+configuration. Verify the database target before running migrations.
 
 ## License
 
