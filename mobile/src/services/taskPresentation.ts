@@ -11,6 +11,7 @@ export type TaskSortField =
   | 'Due Date'
   | 'Priority'
   | 'Title'
+  | 'Status'
   | 'Created Date';
 
 export type TaskSortDirection = 'Ascending' | 'Descending';
@@ -71,6 +72,9 @@ export function filterAndSortTasks(
       if (leftRank === null) return rightRank === null ? 0 : 1;
       if (rightRank === null) return -1;
       return (leftRank - rightRank) * direction;
+    }
+    if (sortField === 'Status') {
+      return (left.status ?? '').localeCompare(right.status ?? '') * direction;
     }
     return (left.title ?? '').localeCompare(right.title ?? '') * direction;
   });

@@ -11,6 +11,11 @@ export type ChangePasswordErrors = {
   confirmPassword?: string;
 };
 
+export type ResetPasswordErrors = {
+  password?: string;
+  confirmPassword?: string;
+};
+
 export function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
@@ -49,6 +54,25 @@ export function validateChangePasswordForm(
     errors.confirmPassword = 'Passwords do not match.';
   }
 
+  return errors;
+}
+
+export function validateResetPasswordForm(
+  password: string,
+  confirmPassword: string
+): ResetPasswordErrors {
+  const errors: ResetPasswordErrors = {};
+  if (!password) {
+    errors.password = 'Password is required.';
+  } else if (!isStrongPassword(password)) {
+    errors.password =
+      'Password must be at least 8 characters and include uppercase, lowercase, a number, and a special character.';
+  }
+  if (!confirmPassword) {
+    errors.confirmPassword = 'Please confirm your password.';
+  } else if (password !== confirmPassword) {
+    errors.confirmPassword = 'Passwords do not match.';
+  }
   return errors;
 }
 

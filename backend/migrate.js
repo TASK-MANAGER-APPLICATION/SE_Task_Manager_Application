@@ -22,6 +22,7 @@ async function migrate() {
       "001_initial_schema.sql",
       "002_session_token_hash.sql",
       "003_task_reopened_event.sql",
+      "004_password_reset_security.sql",
     ];
 
     for (const filename of migrationFiles) {

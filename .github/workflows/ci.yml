@@ -107,6 +107,11 @@ jobs:
             exit 1
           fi
 
+          if [ ! -f backend/migrations/004_password_reset_security.sql ]; then
+            echo "Password reset migration is missing."
+            exit 1
+          fi
+
       - name: Install dependencies
         working-directory: backend
         run: npm ci
@@ -145,13 +150,13 @@ jobs:
               await client.connect();
 
               const result = await client.query(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = '\''public'\'' AND table_name IN ('\''users'\'', '\''sessions'\'') ORDER BY table_name"
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = '\''public'\'' AND table_name IN ('\''users'\'', '\''sessions'\'', '\''password_resets'\'') ORDER BY table_name"
               );
 
               const tables = result.rows.map(row => row.table_name);
               console.log("Database tables found:", tables);
 
-              for (const table of ["users", "sessions"]) {
+              for (const table of ["users", "sessions", "password_resets"]) {
                 if (!tables.includes(table)) {
                   throw new Error("Required table is missing: " + table);
                 }

@@ -42,7 +42,10 @@ export default function RootLayout() {
   const themeColorScheme =
     Platform.OS === 'web' && !webHydrated ? 'light' : colorScheme;
   const isAuthEntryScreen =
-    pathname === '/login' || pathname === '/register';
+    pathname === '/login' ||
+    pathname === '/register' ||
+    pathname === '/forgot-password' ||
+    pathname === '/reset-password';
 
   useEffect(() => {
     if (isAuthEntryScreen) {
@@ -94,6 +97,8 @@ export default function RootLayout() {
   const isStackScreen =
     pathname === '/login' ||
     pathname === '/register' ||
+    pathname === '/forgot-password' ||
+    pathname === '/reset-password' ||
     pathname === '/change-password' ||
     pathname === '/create-task' ||
     pathname.startsWith('/task/');

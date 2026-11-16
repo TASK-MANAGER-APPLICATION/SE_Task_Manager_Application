@@ -195,12 +195,16 @@ router.get("/", async (req, res) => {
     status: "status",
   };
 
-  if (!allowedSortColumns[sortBy]) {
+  if (
+    typeof sortBy !== "string" ||
+    !Object.hasOwn(allowedSortColumns, sortBy)
+  ) {
     return res.status(400).json({
       code: "INVALID_SORT",
       message: "Unsupported sort field.",
     });
   }
+  const sortColumn = allowedSortColumns[sortBy];
 
   if (!["asc", "desc"].includes(String(order).toLowerCase())) {
     return res.status(400).json({
@@ -292,7 +296,7 @@ router.get("/", async (req, res) => {
       `SELECT * FROM tasks
        WHERE ${conditions.join(" AND ")}
        ORDER BY
-         ${allowedSortColumns[sortBy]} ${sortDirection} NULLS LAST,
+         ${sortColumn} ${sortDirection} NULLS LAST,
          id DESC NULLS LAST
        ${paginationSql}`,
       values

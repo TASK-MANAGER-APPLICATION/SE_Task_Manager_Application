@@ -2,11 +2,51 @@
 const express = require("express");
 const crypto = require("crypto");
 const bcrypt = require("bcrypt");
+const { rateLimit } = require("express-rate-limit");
 const pool = require("../db");
+const { sendPasswordResetEmail } = require("../services/email");
 
 const router = express.Router();
 
 const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+const PASSWORD_RESET_MESSAGE =
+  "If an account matches that email, a password reset link will be sent.";
+const passwordResetRateLimitOptions = {
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    code: "RATE_LIMITED",
+    message: "Too many password reset attempts. Please try again later.",
+  },
+};
+const forgotPasswordLimiter = rateLimit(passwordResetRateLimitOptions);
+const resetPasswordLimiter = rateLimit(passwordResetRateLimitOptions);
+
+function isStrongPassword(password) {
+  return (
+    typeof password === "string" &&
+    password.length >= 8 &&
+    /[a-z]/.test(password) &&
+    /[A-Z]/.test(password) &&
+    /\d/.test(password) &&
+    /[^A-Za-z0-9]/.test(password)
+  );
+}
+
+function safeErrorCode(error) {
+  return (
+    typeof error?.code === "string" && /^E[A-Z0-9_]{1,15}$/.test(error.code)
+      ? error.code
+      : "UNKNOWN"
+  );
+}
+
+function logPasswordResetEmailDeliveryFailure(error) {
+  const code = safeErrorCode(error);
+  console.error("Password reset email delivery failed.", { code });
+}
 
 function createSessionToken() {
   return crypto.randomBytes(32).toString("hex");
@@ -122,6 +162,153 @@ router.post("/login", async (req, res) => {
       code: "INTERNAL_ERROR",
       message: "Unable to log in right now.",
     });
+  }
+});
+
+router.post("/forgot-password", forgotPasswordLimiter, async (req, res) => {
+  const { email } = req.body || {};
+  if (
+    typeof email !== "string" ||
+    email.trim().length > 255 ||
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+  ) {
+    return res.status(400).json({
+      code: "INVALID_EMAIL",
+      message: "Enter a valid email address.",
+    });
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const client = await pool.connect();
+  let resetEmail;
+  let resetToken;
+
+  try {
+    await client.query("BEGIN");
+    const userResult = await client.query(
+      "SELECT id, email FROM users WHERE email = $1 FOR UPDATE",
+      [normalizedEmail]
+    );
+
+    if (userResult.rowCount > 0) {
+      const user = userResult.rows[0];
+      resetToken = crypto.randomBytes(32).toString("hex");
+      const tokenHash = crypto.createHash("sha256").update(resetToken).digest("hex");
+
+      await client.query(
+        "UPDATE password_resets SET used = TRUE WHERE user_id = $1 AND used = FALSE",
+        [user.id]
+      );
+      await client.query(
+        `INSERT INTO password_resets (user_id, token_hash, expires_at, used)
+         VALUES ($1, $2, NOW() + INTERVAL '30 minutes', FALSE)`,
+        [user.id, tokenHash]
+      );
+      resetEmail = user.email;
+    }
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("Password reset request failed.", {
+      code: safeErrorCode(err),
+    });
+    return res.status(500).json({
+      code: "INTERNAL_ERROR",
+      message: "Unable to process the password reset request.",
+    });
+  } finally {
+    client.release();
+  }
+
+  // Send after the generic response so SMTP latency cannot reveal account existence.
+  res.status(202).json({ message: PASSWORD_RESET_MESSAGE });
+  if (resetEmail && resetToken) {
+    setImmediate(() => {
+      sendPasswordResetEmail(resetEmail, resetToken).catch((error) => {
+        logPasswordResetEmailDeliveryFailure(error);
+      });
+    });
+  }
+});
+
+router.post("/reset-password", resetPasswordLimiter, async (req, res) => {
+  const { token, newPassword } = req.body || {};
+  if (typeof token !== "string" || !/^[a-f0-9]{64}$/i.test(token)) {
+    return res.status(400).json({
+      code: "INVALID_RESET_TOKEN",
+      message: "This password reset link is invalid or has expired.",
+    });
+  }
+
+  if (!isStrongPassword(newPassword)) {
+    return res.status(400).json({
+      code: "WEAK_PASSWORD",
+      message: "Password must have at least 8 characters, including uppercase, lowercase, a number and a special character.",
+    });
+  }
+
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    const candidateResult = await client.query(
+      `SELECT id, user_id
+       FROM password_resets
+       WHERE token_hash = $1 AND used = FALSE AND expires_at > NOW()`,
+      [tokenHash]
+    );
+
+    if (candidateResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        code: "INVALID_RESET_TOKEN",
+        message: "This password reset link is invalid or has expired.",
+      });
+    }
+
+    const { id: resetId, user_id: userId } = candidateResult.rows[0];
+    await client.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [userId]);
+    const resetResult = await client.query(
+      `SELECT id
+       FROM password_resets
+       WHERE id = $1 AND token_hash = $2 AND used = FALSE AND expires_at > NOW()
+       FOR UPDATE`,
+      [resetId, tokenHash]
+    );
+    if (resetResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        code: "INVALID_RESET_TOKEN",
+        message: "This password reset link is invalid or has expired.",
+      });
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    await client.query("UPDATE users SET password_hash = $1 WHERE id = $2", [
+      passwordHash,
+      userId,
+    ]);
+    await client.query(
+      "UPDATE password_resets SET used = TRUE WHERE user_id = $1 AND used = FALSE",
+      [userId]
+    );
+    await client.query("DELETE FROM sessions WHERE user_id = $1", [userId]);
+    await client.query("COMMIT");
+
+    return res.status(200).json({ message: "Password reset successfully. Please log in." });
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("Password reset failed.", {
+      code: safeErrorCode(err),
+    });
+    return res.status(500).json({
+      code: "INTERNAL_ERROR",
+      message: "Unable to reset your password right now.",
+    });
+  } finally {
+    client.release();
   }
 });
 

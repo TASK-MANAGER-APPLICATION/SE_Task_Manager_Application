@@ -1,4 +1,5 @@
 import React from 'react';
+import { router } from 'expo-router';
 import { Alert } from 'react-native';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
@@ -39,6 +40,12 @@ describe('LoginScreen', () => {
     await fireEvent.press(screen.getByText('Login'));
     expect(screen.getByText('Enter a valid email address.')).toBeTruthy();
     expect(login).not.toHaveBeenCalled();
+  });
+
+  test('opens the forgot-password flow', async () => {
+    const screen = await render(<LoginScreen />);
+    await fireEvent.press(screen.getByText('Forgot password?'));
+    expect(router.push).toHaveBeenCalledWith('/forgot-password');
   });
 
   test('shows invalid credentials inline', async () => {

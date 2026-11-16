@@ -556,6 +556,29 @@ describe("Tasks API", () => {
     expect(invalidOffset.body.code).toBe("INVALID_OFFSET");
   });
 
+  test("sorts by status and rejects inherited or injected sort identifiers", async () => {
+    const ascending = await request(app)
+      .get("/tasks")
+      .query({ sortBy: "status", order: "asc" })
+      .set("Authorization", `Bearer ${tokenA}`);
+    expect(ascending.status).toBe(200);
+    expect(ascending.body.tasks.map((task) => task.status)).toEqual(
+      [...ascending.body.tasks.map((task) => task.status)].sort()
+    );
+
+    const inheritedField = await request(app)
+      .get("/tasks")
+      .query({ sortBy: "toString" })
+      .set("Authorization", `Bearer ${tokenA}`);
+    const injectedField = await request(app)
+      .get("/tasks")
+      .query({ sortBy: "title; DROP TABLE tasks" })
+      .set("Authorization", `Bearer ${tokenA}`);
+
+    expect(inheritedField.status).toBe(400);
+    expect(injectedField.status).toBe(400);
+  });
+
   test("loads a single task without listing the user's full task collection", async () => {
     const response = await request(app)
       .get(`/tasks/${taskId}`)
